@@ -23,24 +23,30 @@ if [ "$EUID" -ne 0 ]; then
     exit 1
 fi
 
-# 1. Update and install dependencies
+# 1. Update and install dependencies (supports Debian Trixie & Bookworm)
 echo "[1/9] Installing system dependencies..."
 apt-get update -y
+
+# Base tools and system libraries
 apt-get install -y \
     curl \
     jq \
     python3 \
     python3-pip \
     python3-pil \
-    python3-spidev \
-    python3-gpiod \
-    gpiod \
     zram-tools \
     network-manager \
     wireless-tools \
     rfkill \
     libevent-dev \
-    fonts-dejavu-core
+    fonts-dejavu-core \
+    gpiod \
+    libgpiod-dev || true
+
+# Install Python spidev and gpiod (tries apt packages, falls back to pip)
+apt-get install -y python3-spidev python3-libgpiod 2>/dev/null || \
+apt-get install -y python3-spidev python3-gpiod 2>/dev/null || \
+pip3 install --break-system-packages spidev gpiod 2>/dev/null || true
 
 # 2. Configure ZRAM for 1.5 GB RAM
 echo "[2/9] Configuring ZRAM swap (essential for Initial Block Download)..."

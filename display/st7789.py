@@ -74,6 +74,7 @@ class ST7789:
 
         self.spi = None
         self.chip = None
+        self.gpiod_v2_request = None
         self.dc_line = None
         self.rst_line = None
         self.bl_line = None
@@ -83,27 +84,42 @@ class ST7789:
     def _init_hardware(self):
         # 1. Initialize SPI
         if spidev is not None:
-            self.spi = spidev.SpiDev()
-            self.spi.open(self.spi_bus, self.spi_device)
-            self.spi.max_speed_hz = self.spi_speed_hz
-            self.spi.mode = 0b00  # Mode 0 (CPOL=0, CPHA=0)
+            try:
+                self.spi = spidev.SpiDev()
+                self.spi.open(self.spi_bus, self.spi_device)
+                self.spi.max_speed_hz = self.spi_speed_hz
+                self.spi.mode = 0b00  # Mode 0
+            except Exception as e:
+                print(f"[WARN] Failed to open SPI device: {e}")
         else:
             print("[WARN] spidev library not found. Running in simulation mode.")
 
-        # 2. Initialize GPIO (libgpiod v1.x compatibility)
+        # 2. Initialize GPIO (Supports both libgpiod v1.x and v2.x)
         if gpiod is not None and os.path.exists(self.gpiochip_path):
             try:
-                # Check for libgpiod 1.x Chip API
-                self.chip = gpiod.Chip(self.gpiochip_path)
-                
-                self.dc_line = self.chip.get_line(self.dc_pin)
-                self.dc_line.request(consumer="st7789_dc", type=gpiod.LINE_REQ_DIR_OUT)
+                # Check for libgpiod 1.x vs 2.x
+                if hasattr(gpiod, "Chip"):
+                    self.chip = gpiod.Chip(self.gpiochip_path)
+                    
+                    if hasattr(self.chip, "get_line"):
+                        # libgpiod 1.x API
+                        self.dc_line = self.chip.get_line(self.dc_pin)
+                        self.dc_line.request(consumer="st7789_dc", type=gpiod.LINE_REQ_DIR_OUT)
 
-                self.rst_line = self.chip.get_line(self.rst_pin)
-                self.rst_line.request(consumer="st7789_rst", type=gpiod.LINE_REQ_DIR_OUT)
+                        self.rst_line = self.chip.get_line(self.rst_pin)
+                        self.rst_line.request(consumer="st7789_rst", type=gpiod.LINE_REQ_DIR_OUT)
 
-                self.bl_line = self.chip.get_line(self.bl_pin)
-                self.bl_line.request(consumer="st7789_bl", type=gpiod.LINE_REQ_DIR_OUT)
+                        self.bl_line = self.chip.get_line(self.bl_pin)
+                        self.bl_line.request(consumer="st7789_bl", type=gpiod.LINE_REQ_DIR_OUT)
+                    elif hasattr(self.chip, "request_lines"):
+                        # libgpiod 2.x API
+                        from gpiod.line import Direction, Value
+                        config = {
+                            self.dc_pin: gpiod.LineSettings(direction=Direction.OUTPUT, output_value=Value.INACTIVE),
+                            self.rst_pin: gpiod.LineSettings(direction=Direction.OUTPUT, output_value=Value.ACTIVE),
+                            self.bl_pin: gpiod.LineSettings(direction=Direction.OUTPUT, output_value=Value.ACTIVE),
+                        }
+                        self.gpiod_v2_request = self.chip.request_lines(consumer="st7789", config=config)
             except Exception as e:
                 print(f"[WARN] libgpiod initialization failed: {e}")
         else:
@@ -116,23 +132,31 @@ class ST7789:
     def _set_dc(self, val: int):
         if self.dc_line:
             self.dc_line.set_value(val)
+        elif self.gpiod_v2_request:
+            from gpiod.line import Value
+            self.gpiod_v2_request.set_value(self.dc_pin, Value.ACTIVE if val else Value.INACTIVE)
 
     def _set_rst(self, val: int):
         if self.rst_line:
             self.rst_line.set_value(val)
+        elif self.gpiod_v2_request:
+            from gpiod.line import Value
+            self.gpiod_v2_request.set_value(self.rst_pin, Value.ACTIVE if val else Value.INACTIVE)
 
     def set_backlight(self, on: bool):
         if self.bl_line:
             self.bl_line.set_value(1 if on else 0)
+        elif self.gpiod_v2_request:
+            from gpiod.line import Value
+            self.gpiod_v2_request.set_value(self.bl_pin, Value.ACTIVE if on else Value.INACTIVE)
 
     def reset(self):
-        if self.rst_line:
-            self._set_rst(1)
-            time.sleep(0.01)
-            self._set_rst(0)
-            time.sleep(0.05)
-            self._set_rst(1)
-            time.sleep(0.05)
+        self._set_rst(1)
+        time.sleep(0.01)
+        self._set_rst(0)
+        time.sleep(0.05)
+        self._set_rst(1)
+        time.sleep(0.05)
 
     def command(self, cmd: int):
         self._set_dc(0)
@@ -145,7 +169,6 @@ class ST7789:
             if isinstance(val, int):
                 self.spi.writebytes([val])
             elif isinstance(val, (bytes, bytearray, list)):
-                # Break large transfers into 4096 byte chunks to prevent buffer overrun
                 chunk_size = 4096
                 for i in range(0, len(val), chunk_size):
                     chunk = val[i : i + chunk_size]
@@ -162,20 +185,20 @@ class ST7789:
         self.command(ST7789_COLMOD)
         self.data(0x55)
 
-        # Memory data access control (rotation / color order)
+        # Memory data access control (rotation)
         self.command(ST7789_MADCTL)
         if self.rotation == 0:
-            self.data(0x00) # Portrait 240x320
+            self.data(0x00)
         elif self.rotation == 90:
-            self.data(0x70) # Landscape 320x240
+            self.data(0x70)
         elif self.rotation == 180:
-            self.data(0xC0) # Inverted Portrait
+            self.data(0xC0)
         elif self.rotation == 270:
-            self.data(0xA0) # Inverted Landscape
+            self.data(0xA0)
         else:
             self.data(0x00)
 
-        self.command(ST7789_INVON) # Inversion ON for ST7789V panels
+        self.command(ST7789_INVON)
         time.sleep(0.01)
 
         self.command(ST7789_NORON)
@@ -192,15 +215,12 @@ class ST7789:
         self.command(ST7789_RAMWR)
 
     def display(self, image):
-        """Send PIL Image to display (expects RGB image matching width/height)."""
         if image.size != (self.width, self.height):
             image = image.resize((self.width, self.height))
 
-        # Convert RGB888 PIL Image to RGB565 byte array
         img_rgb = image.convert("RGB")
         raw_data = img_rgb.tobytes()
 
-        # Fast RGB565 conversion
         buf = bytearray(self.width * self.height * 2)
         idx = 0
         for i in range(0, len(raw_data), 3):
@@ -229,5 +249,13 @@ class ST7789:
         self.set_backlight(False)
         if self.spi:
             self.spi.close()
+        if self.dc_line:
+            self.dc_line.release()
+        if self.rst_line:
+            self.rst_line.release()
+        if self.bl_line:
+            self.bl_line.release()
+        if self.gpiod_v2_request:
+            self.gpiod_v2_request.release()
         if self.chip:
             self.chip.close()
