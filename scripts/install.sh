@@ -53,28 +53,24 @@ echo "[2/9] Configuring ZRAM swap (essential for Initial Block Download)..."
 if [ -f "config/zram-tools.conf" ]; then
     cp config/zram-tools.conf /etc/default/zramswap 2>/dev/null || cp config/zram-tools.conf /etc/zram-tools/zram-tools.conf 2>/dev/null || true
 fi
-systemctl restart zramswap || true
+systemctl restart zramswap 2>/dev/null || true
 
-# 3. Configure Orange Pi SPI Overlay
+# 3. Configure Orange Pi SPI Overlay (Supports both Armbian & Orange Pi OS naming)
 echo "[3/9] Checking SPI overlays in boot configuration..."
-BOOT_CONF=""
-if [ -f "/boot/orangepiEnv.txt" ]; then
-    BOOT_CONF="/boot/orangepiEnv.txt"
-elif [ -f "/boot/armbianEnv.txt" ]; then
+if [ -f "/boot/armbianEnv.txt" ]; then
     BOOT_CONF="/boot/armbianEnv.txt"
-fi
-
-if [ -n "$BOOT_CONF" ]; then
-    if ! grep -q "spi1-cs1-spidev" "$BOOT_CONF"; then
-        echo "Adding 'spi1-cs1-spidev' overlay to $BOOT_CONF..."
-        if grep -q "overlays=" "$BOOT_CONF"; then
-            sed -i 's/overlays=\(.*\)/overlays=\1 spi1-cs1-spidev/' "$BOOT_CONF"
-        else
-            echo "overlays=spi1-cs1-spidev" >> "$BOOT_CONF"
-        fi
-    else
-        echo "SPI1 CS1 overlay already enabled in $BOOT_CONF."
+    # On Armbian with overlay_prefix=sun50i-h616, overlays are spidev1_0 and spidev1_1
+    sed -i 's/overlays=.*/overlays=spidev1_0 spidev1_1/' "$BOOT_CONF"
+    if ! grep -q "overlays=" "$BOOT_CONF"; then
+        echo "overlays=spidev1_0 spidev1_1" >> "$BOOT_CONF"
     fi
+    echo "Configured Armbian SPI overlays (spidev1_0 spidev1_1) in $BOOT_CONF."
+elif [ -f "/boot/orangepiEnv.txt" ]; then
+    BOOT_CONF="/boot/orangepiEnv.txt"
+    if ! grep -q "spi1-cs1-spidev" "$BOOT_CONF"; then
+        echo "overlays=spi1-cs1-spidev" >> "$BOOT_CONF"
+    fi
+    echo "Configured Orange Pi OS SPI overlay in $BOOT_CONF."
 fi
 
 # 4. Configure Groups and Udev Rules
@@ -165,9 +161,6 @@ echo " "
 echo " Next Steps:"
 echo " 1. If this is your first time enabling SPI, reboot the Orange Pi:"
 echo "    sudo reboot"
-echo " 2. Wi-Fi Configuration:"
-echo "    You can edit /boot/wifi.conf (or put it directly on the SD card)"
-echo "    to change Wi-Fi networks anytime without connecting an Ethernet cable."
-echo " 3. Check status anytime:"
+echo " 2. Check status anytime:"
 echo "    /opt/pruned-btcnode/scripts/btc-status.sh"
 echo "===================================================================="
