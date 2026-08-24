@@ -1,0 +1,18 @@
+﻿[Unit]
+Description=Bitcoin Node 2-inch LCD Telemetry Display
+After=network.target bitcoind.service
+Wants=bitcoind.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/pruned-btcnode
+ExecStart=/usr/bin/python3 /opt/pruned-btcnode/display/btc_display.py
+Restart=always
+RestartSec=10s
+
+# Environment
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target

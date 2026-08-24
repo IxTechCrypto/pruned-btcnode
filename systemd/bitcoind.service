@@ -1,0 +1,32 @@
+﻿[Unit]
+Description=Bitcoin Core Pruned Node Daemon
+Documentation=https://github.com/bitcoin/bitcoin
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+ExecStart=/usr/local/bin/bitcoind -conf=/etc/bitcoin/bitcoin.conf -datadir=/var/lib/bitcoind -pid=/run/bitcoind/bitcoind.pid
+ExecStop=/usr/local/bin/bitcoin-cli -conf=/etc/bitcoin/bitcoin.conf -datadir=/var/lib/bitcoind stop
+
+# Process management
+Type=simple
+PIDFile=/run/bitcoind/bitcoind.pid
+Restart=on-failure
+RestartSec=30s
+TimeoutStopSec=300
+TimeoutStartSec=120
+
+# Directory creation and permissions
+User=bitcoin
+Group=bitcoin
+RuntimeDirectory=bitcoind
+RuntimeDirectoryMode=0710
+
+# Hardening & Sandboxing
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target

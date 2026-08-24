@@ -1,0 +1,14 @@
+﻿[Unit]
+Description=Wi-Fi Auto-Connect from SD Card / Boot Config
+After=NetworkManager.service wpa_supplicant.service
+Before=network-online.target bitcoind.service btc-display.service
+Wants=NetworkManager.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/opt/pruned-btcnode/scripts/wifi_autoconnect.sh
+TimeoutStartSec=45
+
+[Install]
+WantedBy=multi-user.target

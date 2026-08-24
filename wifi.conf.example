@@ -1,0 +1,15 @@
+﻿# ==============================================================================
+# Wi-Fi Configuration for Orange Pi Zero 3
+# ==============================================================================
+# How to use:
+# 1. Enter your Wi-Fi network name (SSID) and password below.
+# 2. You can also copy this file to the /boot/ partition as 'wifi.conf' or 'wifi.txt'
+#    so anyone can edit it directly on their PC by inserting the SD card.
+# 3. The node will automatically read this file at boot and connect via wlan0.
+# ==============================================================================
+
+WIFI_SSID="Your_WiFi_SSID_Here"
+WIFI_PASSWORD="Your_WiFi_Password_Here"
+
+# Optional: Regulatory domain / Country Code (e.g. US, GB, DE, CA, JP)
+WIFI_COUNTRY="US"
