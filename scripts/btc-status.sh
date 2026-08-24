@@ -26,9 +26,9 @@ echo "============================================================"
 
 # Check bitcoind service status
 if systemctl is-active --quiet bitcoind; then
-    echo -e " Daemon Status:      \e[32m● Active (Running)\e[0m"
+    echo " Daemon Status:      Active (Running)"
 else
-    echo -e " Daemon Status:      \e[31m● Inactive / Stopped\e[0m"
+    echo " Daemon Status:      Inactive / Stopped"
 fi
 
 # Query RPC Info
@@ -39,7 +39,7 @@ if $BITCOIN_CLI $CLI_OPTS getblockchaininfo >/dev/null 2>&1; then
 
     BLOCKS=$(echo "$INFO" | grep -o '"blocks": [0-9]*' | awk '{print $2}')
     HEADERS=$(echo "$INFO" | grep -o '"headers": [0-9]*' | awk '{print $2}')
-    PROGRESS=$(echo "$INFO" | grep -o '"verificationprogress": [0-9.]*' | awk '{printf "%.2f%%", $2 * 100}')
+    PROGRESS=$(echo "$INFO" | grep -o '"verificationprogress": [0-9.eE+-]*' | awk '{val = $2 * 100; if (val > 100) val = 100; printf "%.2f%%", val}')
     PRUNED=$(echo "$INFO" | grep -o '"pruned": [a-z]*' | awk '{print $2}')
     PEERS=$(echo "$NET" | grep -o '"connections": [0-9]*' | awk '{print $2}')
     VERSION=$(echo "$NET" | grep -o '"subversion": "[^"]*"' | cut -d'"' -f4)
@@ -52,7 +52,7 @@ if $BITCOIN_CLI $CLI_OPTS getblockchaininfo >/dev/null 2>&1; then
     echo " Active Peers:       $PEERS"
     echo " Mempool:            $TXS transactions ($MEM_BYTES)"
 else
-    echo -e " RPC Status:         \e[33mConnecting or Daemon Warming Caches...\e[0m"
+    echo " RPC Status:         Connecting or Daemon Warming Caches..."
 fi
 
 echo "------------------------------------------------------------"
