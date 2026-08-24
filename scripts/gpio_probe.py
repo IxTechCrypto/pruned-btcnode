@@ -1,7 +1,7 @@
-﻿#!/usr/bin/env python3
+﻿#!/usr/bin/env bash
+#!/usr/bin/env python3
 """
 Orange Pi Zero 3 Hardware Probe & Display Test Utility
-Use this script to verify SPI1 (/dev/spidev1.1) and libgpiod line controls.
 """
 
 import sys
@@ -9,13 +9,12 @@ import os
 import time
 import argparse
 
+sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 try:
-    from display.st7789 import ST7789
+    from display.st7789 import ST7789, find_main_gpiochip
 except ImportError:
-    try:
-        from st7789 import ST7789
-    except ImportError:
-        ST7789 = None
+    ST7789 = None
+    find_main_gpiochip = lambda: "/dev/gpiochip1"
 
 try:
     import gpiod
@@ -33,58 +32,53 @@ def probe_system():
     print("Orange Pi Zero 3 Hardware Probe")
     print("=" * 60)
 
-    # 1. Model Info
     model_path = "/sys/firmware/devicetree/base/model"
     if os.path.exists(model_path):
         with open(model_path, "r") as f:
             print(f"Board Model: {f.read().strip()}")
-    else:
-        print("Board Model: Unknown / non-Linux")
 
-    # 2. Kernel & Architecture
     print(f"Platform: {sys.platform} ({os.uname().machine if hasattr(os, 'uname') else 'N/A'})")
 
-    # 3. SPI Devices
     spidevs = [os.path.join("/dev", f) for f in os.listdir("/dev") if f.startswith("spidev")] if os.path.exists("/dev") else []
-    print(f"SPI Devices Found: {spidevs if spidevs else 'NONE (Enable spi1-cs1-spidev in /boot/orangepiEnv.txt)'}")
+    print(f"SPI Devices Found: {spidevs}")
 
-    # 4. GPIO Chips
     if gpiod is not None:
         print(f"libgpiod version: {getattr(gpiod, '__version__', 'unknown')}")
-        chips = [os.path.join("/dev", f) for f in os.listdir("/dev") if f.startswith("gpiochip")] if os.path.exists("/dev") else []
+        chips = [os.path.join("/dev", f) for f in sorted(os.listdir("/dev")) if f.startswith("gpiochip")] if os.path.exists("/dev") else []
         for c in chips:
             try:
                 chip = gpiod.Chip(c)
-                print(f"  - {c}: {chip.name()} ({chip.label()}) with {chip.num_lines()} lines")
+                lines = chip.get_info().num_lines if hasattr(chip, "get_info") else chip.num_lines()
+                label = chip.get_info().name if hasattr(chip, "get_info") else chip.name()
+                print(f"  - {c}: ({label}) with {lines} lines")
                 chip.close()
             except Exception as e:
                 print(f"  - {c}: Error opening ({e})")
-    else:
-        print("libgpiod: NOT INSTALLED (Run: sudo apt-get install python3-gpiod)")
     print("=" * 60)
 
 
-def blink_backlight(gpiochip="/dev/gpiochip0", bl_pin=79, count=5):
+def blink_backlight(gpiochip=None, bl_pin=79, count=5):
     if gpiod is None:
         print("[ERROR] libgpiod is required for GPIO control.")
         return
 
-    print(f"[INFO] Blinking Backlight on {gpiochip} line {bl_pin} ({count} cycles)...")
+    chip_path = gpiochip or find_main_gpiochip()
+    print(f"[INFO] Blinking Backlight on {chip_path} line {bl_pin} ({count} cycles)...")
     try:
-        chip = gpiod.Chip(gpiochip)
-        line = chip.get_line(bl_pin)
-        line.request(consumer="probe_bl", type=gpiod.LINE_REQ_DIR_OUT)
-
-        for i in range(count):
-            line.set_value(1)
-            print(f"  Cycle {i+1}: ON")
-            time.sleep(0.5)
-            line.set_value(0)
-            print(f"  Cycle {i+1}: OFF")
-            time.sleep(0.5)
-
-        line.set_value(1) # Leave on
-        line.release()
+        chip = gpiod.Chip(chip_path)
+        if hasattr(chip, "request_lines"):
+            import gpiod.line as gline
+            settings = gpiod.LineSettings(direction=gline.Direction.OUTPUT, output_value=gline.Value.ACTIVE)
+            req = chip.request_lines(consumer="probe_bl", config={bl_pin: settings})
+            for i in range(count):
+                req.set_value(bl_pin, gline.Value.ACTIVE)
+                print(f"  Cycle {i+1}: ON")
+                time.sleep(0.5)
+                req.set_value(bl_pin, gline.Value.INACTIVE)
+                print(f"  Cycle {i+1}: OFF")
+                time.sleep(0.5)
+            req.set_value(bl_pin, gline.Value.ACTIVE)
+            req.release()
         chip.close()
         print("[SUCCESS] Backlight test complete.")
     except Exception as e:
@@ -112,7 +106,6 @@ def test_display():
             disp.clear(color)
             time.sleep(1.0)
 
-        # Draw graphic card test
         if Image is not None:
             img = Image.new("RGB", (240, 320), (15, 20, 28))
             draw = ImageDraw.Draw(img)
