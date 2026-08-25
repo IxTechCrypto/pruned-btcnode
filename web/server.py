@@ -3,6 +3,7 @@
 Bitcoin Pruned Node Cyberpunk Web Dashboard Server
 Target: Orange Pi Zero 3 / Lightweight Linux
 Serves real-time node stats, peer matrix, system metrics, and interactive 3D globe.
+Uses an async background polling cache to eliminate RPC queue blocking during Initial Block Download.
 """
 
 import os
@@ -12,6 +13,7 @@ import json
 import socket
 import shutil
 import base64
+import threading
 import subprocess
 import urllib.request
 import urllib.error
@@ -30,30 +32,31 @@ COOKIE_PATHS = [
     os.path.expanduser("~orangepi/.bitcoin/.cookie"),
 ]
 
+# Thread-safe global cache
+_CACHE_LOCK = threading.Lock()
+_CACHED_STATS = {
+    "online": False,
+    "blockchain": {"blocks": 0, "headers": 0, "progress": 0.0, "ibd": True},
+    "network": {"connections": 0, "version": "Satoshi:31.1.0"},
+    "mempool": {"txs": 0, "usage_mb": 0.0},
+    "mining": {"networkhashps": 0},
+    "system": {"ip": "127.0.0.1", "cpu_temp": 0.0, "ram_used_mb": 0, "ram_total_mb": 1536, "ram_pct": 0, "disk_free_gb": 0, "disk_total_gb": 0, "disk_used_pct": 0, "uptime_sec": 0, "load_avg": [0, 0, 0]},
+    "timestamp": int(time.time()),
+}
+_CACHED_PEERS = {"peers": [], "count": 0}
+
 
 class BitcoinRPC:
     def __init__(self):
         self.url = f"http://{RPC_HOST}:{RPC_PORT}"
 
-    def _get_auth(self):
-        for path in COOKIE_PATHS:
-            if os.path.exists(path):
-                try:
-                    with open(path, "r") as f:
-                        creds = f.read().strip()
-                    return "Basic " + base64.b64encode(creds.encode()).decode()
-                except Exception:
-                    pass
-        return None
-
     def call(self, method, params=None):
         if params is None:
             params = []
 
-        # 1. Native bitcoin-cli execution
         try:
             cmd = ["bitcoin-cli", "-datadir=/var/lib/bitcoind", method] + [str(p) for p in params]
-            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=4)
+            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=8)
             if proc.returncode == 0 and proc.stdout.strip():
                 try:
                     return json.loads(proc.stdout)
@@ -62,33 +65,13 @@ class BitcoinRPC:
         except Exception:
             pass
 
-        # 2. HTTP JSON-RPC fallback
-        payload = json.dumps({
-            "jsonrpc": "1.0",
-            "id": "web-hud",
-            "method": method,
-            "params": params
-        }).encode("utf-8")
-
-        headers = {"Content-Type": "text/plain"}
-        auth = self._get_auth()
-        if auth:
-            headers["Authorization"] = auth
-
-        req = urllib.request.Request(self.url, data=payload, headers=headers)
-        try:
-            with urllib.request.urlopen(req, timeout=4) as resp:
-                data = json.loads(resp.read().decode())
-                return data.get("result")
-        except Exception:
-            return None
+        return None
 
 
 rpc = BitcoinRPC()
 
 
 def get_system_metrics():
-    # CPU Temp
     temp_c = 0.0
     for p in ["/sys/class/thermal/thermal_zone0/temp", "/sys/class/hwmon/hwmon0/temp1_input"]:
         if os.path.exists(p):
@@ -99,7 +82,6 @@ def get_system_metrics():
             except Exception:
                 pass
 
-    # RAM
     ram_used = 0
     ram_total = 1536
     try:
@@ -117,7 +99,6 @@ def get_system_metrics():
     except Exception:
         pass
 
-    # Disk
     disk_free = 0.0
     disk_total = 0.0
     try:
@@ -128,7 +109,6 @@ def get_system_metrics():
     except Exception:
         pass
 
-    # Uptime & Load
     uptime_sec = 0
     try:
         with open("/proc/uptime", "r") as f:
@@ -142,7 +122,6 @@ def get_system_metrics():
     except Exception:
         pass
 
-    # Host IP
     ip = "127.0.0.1"
     try:
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -166,9 +145,100 @@ def get_system_metrics():
     }
 
 
+def background_telemetry_collector():
+    """Background polling loop that caches node state every 3 seconds."""
+    global _CACHED_STATS, _CACHED_PEERS
+    while True:
+        try:
+            chain = rpc.call("getblockchaininfo") or {}
+            net = rpc.call("getnetworkinfo") or {}
+            mem = rpc.call("getmempoolinfo") or {}
+            mining = rpc.call("getmininginfo") or {}
+            net_totals = rpc.call("getnettotals") or {}
+            peers = rpc.call("getpeerinfo") or []
+
+            sys_metrics = get_system_metrics()
+
+            online = bool(chain and net)
+            blocks = chain.get("blocks", 0)
+            headers = chain.get("headers", 0)
+            progress = chain.get("verificationprogress", 0.0) * 100.0
+            ibd = chain.get("initialblockdownload", False) or progress < 99.99
+
+            stats_data = {
+                "online": online,
+                "blockchain": {
+                    "chain": chain.get("chain", "main"),
+                    "blocks": blocks,
+                    "headers": headers,
+                    "progress": round(progress, 4),
+                    "ibd": ibd,
+                    "difficulty": chain.get("difficulty", 0),
+                    "pruned": chain.get("pruned", True),
+                    "prune_target_mb": chain.get("prune_target_size", 0) // (1024 * 1024) if chain.get("prune_target_size") else 550,
+                    "bestblockhash": chain.get("bestblockhash", ""),
+                    "size_on_disk": chain.get("size_on_disk", 0),
+                },
+                "network": {
+                    "version": net.get("subversion", "/Satoshi:31.1.0/").strip("/"),
+                    "protocolversion": net.get("protocolversion", 70016),
+                    "connections": net.get("connections", 0),
+                    "connections_in": net.get("connections_in", 0),
+                    "connections_out": net.get("connections_out", 0),
+                    "totalbytesrecv": net_totals.get("totalbytesrecv", 0),
+                    "totalbytessent": net_totals.get("totalbytessent", 0),
+                    "networkactive": net.get("networkactive", True),
+                },
+                "mempool": {
+                    "txs": mem.get("size", 0),
+                    "bytes": mem.get("bytes", 0),
+                    "usage_mb": round(mem.get("usage", 0) / (1024 * 1024), 2),
+                    "max_mb": round(mem.get("maxmempool", 100 * 1024 * 1024) / (1024 * 1024), 0),
+                },
+                "mining": {
+                    "networkhashps": mining.get("networkhashps", 0),
+                },
+                "system": sys_metrics,
+                "timestamp": int(time.time()),
+            }
+
+            peer_list = []
+            if isinstance(peers, list):
+                for p in peers:
+                    addr = p.get("addr", "")
+                    if addr.startswith("[") and "]:" in addr:
+                        ip = addr.split("]:")[0] + "]"
+                    elif ":" in addr:
+                        ip = addr.split(":")[0]
+                    else:
+                        ip = addr
+                    peer_list.append({
+                        "id": p.get("id"),
+                        "addr": addr,
+                        "ip": ip,
+                        "subver": p.get("subver", "").strip("/"),
+                        "inbound": p.get("inbound", False),
+                        "pingtime": round(p.get("pingtime", 0.0) * 1000, 1),
+                        "bytesrecv": p.get("bytesrecv", 0),
+                        "bytessent": p.get("bytessent", 0),
+                        "synced_headers": p.get("synced_headers", 0),
+                        "synced_blocks": p.get("synced_blocks", 0),
+                    })
+            peers_data = {"peers": peer_list, "count": len(peer_list)}
+
+            with _CACHE_LOCK:
+                _CACHED_STATS = stats_data
+                _CACHED_PEERS = peers_data
+
+        except Exception as e:
+            pass
+
+        time.sleep(3)
+
+
 class DashboardHandler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
-        pass  # Suppress excessive stdout logging
+        pass
 
     def do_GET(self):
         url_path = self.path.split("?")[0]
@@ -189,9 +259,13 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 content_type = "image/png"
             self._serve_file(file_path, content_type)
         elif url_path == "/api/stats":
-            self._handle_stats()
+            with _CACHE_LOCK:
+                data = dict(_CACHED_STATS)
+            self._send_json(data)
         elif url_path == "/api/peers":
-            self._handle_peers()
+            with _CACHE_LOCK:
+                data = dict(_CACHED_PEERS)
+            self._send_json(data)
         else:
             self.send_error(404, "Not Found")
 
@@ -214,86 +288,6 @@ class DashboardHandler(BaseHTTPRequestHandler):
         else:
             self.send_error(404, "File Not Found")
 
-    def _handle_stats(self):
-        chain = rpc.call("getblockchaininfo") or {}
-        net = rpc.call("getnetworkinfo") or {}
-        mem = rpc.call("getmempoolinfo") or {}
-        mining = rpc.call("getmininginfo") or {}
-        net_totals = rpc.call("getnettotals") or {}
-
-        sys_metrics = get_system_metrics()
-
-        online = bool(chain and net)
-        blocks = chain.get("blocks", 0)
-        headers = chain.get("headers", 0)
-        progress = chain.get("verificationprogress", 0.0) * 100.0
-        ibd = chain.get("initialblockdownload", False) or progress < 99.99
-
-        data = {
-            "online": online,
-            "blockchain": {
-                "chain": chain.get("chain", "main"),
-                "blocks": blocks,
-                "headers": headers,
-                "progress": round(progress, 4),
-                "ibd": ibd,
-                "difficulty": chain.get("difficulty", 0),
-                "pruned": chain.get("pruned", True),
-                "prune_target_mb": chain.get("prune_target_size", 0) // (1024 * 1024) if chain.get("prune_target_size") else 550,
-                "bestblockhash": chain.get("bestblockhash", ""),
-                "size_on_disk": chain.get("size_on_disk", 0),
-            },
-            "network": {
-                "version": net.get("subversion", "/Satoshi:31.1.0/").strip("/"),
-                "protocolversion": net.get("protocolversion", 70016),
-                "connections": net.get("connections", 0),
-                "connections_in": net.get("connections_in", 0),
-                "connections_out": net.get("connections_out", 0),
-                "totalbytesrecv": net_totals.get("totalbytesrecv", 0),
-                "totalbytessent": net_totals.get("totalbytessent", 0),
-                "networkactive": net.get("networkactive", True),
-            },
-            "mempool": {
-                "txs": mem.get("size", 0),
-                "bytes": mem.get("bytes", 0),
-                "usage_mb": round(mem.get("usage", 0) / (1024 * 1024), 2),
-                "max_mb": round(mem.get("maxmempool", 100 * 1024 * 1024) / (1024 * 1024), 0),
-            },
-            "mining": {
-                "networkhashps": mining.get("networkhashps", 0),
-            },
-            "system": sys_metrics,
-            "timestamp": int(time.time()),
-        }
-
-        self._send_json(data)
-
-    def _handle_peers(self):
-        peers = rpc.call("getpeerinfo") or []
-        peer_list = []
-        if isinstance(peers, list):
-            for p in peers:
-                addr = p.get("addr", "")
-                if addr.startswith("[") and "]:" in addr:
-                    ip = addr.split("]:")[0] + "]"
-                elif ":" in addr:
-                    ip = addr.split(":")[0]
-                else:
-                    ip = addr
-                peer_list.append({
-                    "id": p.get("id"),
-                    "addr": addr,
-                    "ip": ip,
-                    "subver": p.get("subver", "").strip("/"),
-                    "inbound": p.get("inbound", False),
-                    "pingtime": round(p.get("pingtime", 0.0) * 1000, 1),
-                    "bytesrecv": p.get("bytesrecv", 0),
-                    "bytessent": p.get("bytessent", 0),
-                    "synced_headers": p.get("synced_headers", 0),
-                    "synced_blocks": p.get("synced_blocks", 0),
-                })
-        self._send_json({"peers": peer_list, "count": len(peer_list)})
-
     def _handle_custom_rpc(self):
         content_length = int(self.headers.get("Content-Length", 0))
         body = self.rfile.read(content_length).decode("utf-8")
@@ -308,7 +302,6 @@ class DashboardHandler(BaseHTTPRequestHandler):
             method = parts[0]
             params = parts[1:] if len(parts) > 1 else []
 
-            # Safe whitelist for web terminal
             blocked_commands = ["stop", "walletpassphrase", "dumpwallet", "importprivkey"]
             if method.lower() in blocked_commands:
                 self._send_json({"error": f"Command '{method}' is restricted for web dashboard safety."}, 403)
@@ -335,6 +328,10 @@ class ThreadedHTTPServer(ThreadingMixIn, HTTPServer):
 
 
 def main():
+    # Start background telemetry collector thread
+    t = threading.Thread(target=background_telemetry_collector, daemon=True)
+    t.start()
+
     server = ThreadedHTTPServer(("0.0.0.0", PORT), DashboardHandler)
     print(f"[CYBERPUNK HUD] Bitcoin Node Dashboard active at http://0.0.0.0:{PORT}")
     try:
