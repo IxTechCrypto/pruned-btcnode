@@ -1,0 +1,17 @@
+﻿[Unit]
+Description=Bitcoin Pruned Node Cyberpunk Web Dashboard
+After=network.target bitcoind.service
+Wants=bitcoind.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/pruned-btcnode
+ExecStart=/usr/bin/python3 /opt/pruned-btcnode/web/server.py
+Restart=always
+RestartSec=5s
+Environment=PYTHONUNBUFFERED=1
+Environment=PORT=8334
+
+[Install]
+WantedBy=multi-user.target

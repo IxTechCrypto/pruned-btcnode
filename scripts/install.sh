@@ -124,14 +124,16 @@ rm -rf "$TMP_DIR"
 echo "Installed Bitcoin Core version:"
 bitcoin-cli --version
 
-# 8. Install Display Telemetry & Wi-Fi Files
-echo "[8/9] Installing scripts and telemetry daemon..."
+# 8. Install Display Telemetry, Web Dashboard & Scripts
+echo "[8/9] Installing web dashboard, display daemon, and scripts..."
 mkdir -p "$APP_DIR"
 cp -r display "$APP_DIR/"
 cp -r scripts "$APP_DIR/"
-sed -i '1s/^\xEF\xBB\xBF//' "$APP_DIR/scripts/"*.sh "$APP_DIR/scripts/"*.py "$APP_DIR/display/"*.py 2>/dev/null || true
+cp -r web "$APP_DIR/"
+sed -i '1s/^\xEF\xBB\xBF//' "$APP_DIR/scripts/"*.sh "$APP_DIR/scripts/"*.py "$APP_DIR/display/"*.py "$APP_DIR/web/"*.py 2>/dev/null || true
 chown -R root:root "$APP_DIR"
 chmod +x "$APP_DIR/display/btc_display.py"
+chmod +x "$APP_DIR/web/server.py"
 chmod +x "$APP_DIR/scripts/"*.sh
 chmod +x "$APP_DIR/scripts/"*.py
 
@@ -143,6 +145,9 @@ fi
 if [ -f "systemd/btc-display.service" ]; then
     cp systemd/btc-display.service /etc/systemd/system/
 fi
+if [ -f "systemd/btc-web.service" ]; then
+    cp systemd/btc-web.service /etc/systemd/system/
+fi
 if [ -f "systemd/wifi-autoconnect.service" ]; then
     cp systemd/wifi-autoconnect.service /etc/systemd/system/
 fi
@@ -151,6 +156,10 @@ systemctl daemon-reload
 systemctl enable wifi-autoconnect.service || true
 systemctl enable bitcoind.service
 systemctl enable btc-display.service
+systemctl enable btc-web.service
+
+# Start web service
+systemctl restart btc-web.service || true
 
 # Run Wi-Fi connect now if config exists
 if [ -f "/etc/pruned-btcnode/wifi.conf" ] || [ -f "/boot/wifi.conf" ]; then
@@ -159,4 +168,5 @@ fi
 
 echo "===================================================================="
 echo " Installation Complete! (Bitcoin Core v${BTC_VERSION})"
+echo " Cyberpunk Web Dashboard: http://$(hostname -I | awk '{print $1}'):8334"
 echo "===================================================================="

@@ -1,0 +1,218 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Bitcoin Pruned Node // Cyberpunk HUD</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>₿</text></svg>">
+</head>
+<body>
+
+  <!-- Top Navigation Bar -->
+  <header class="top-nav">
+    <div class="brand-section">
+      <div class="brand-logo">₿ BTC-NODE</div>
+      <span class="brand-badge" id="navVersion">v31.1.0</span>
+      <span class="brand-badge" style="border-color:rgba(255,176,0,0.4); color:var(--neon-gold);">ORANGE PI ZERO 3</span>
+    </div>
+
+    <div class="nav-metrics">
+      <div class="nav-item">
+        <div class="status-dot" id="nodeStatusDot"></div>
+        <span id="nodeStatusText" style="font-weight:700;">CONNECTING...</span>
+      </div>
+      <div class="nav-item">
+        <span style="color:var(--text-muted);">HOST IP:</span>
+        <span id="navIp" style="color:var(--neon-cyan); font-weight:600;">127.0.0.1</span>
+      </div>
+      <div class="nav-item">
+        <span style="color:var(--text-muted);">UPTIME:</span>
+        <span id="navUptime" style="color:var(--text-main);">00h 00m</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Dashboard Container -->
+  <main class="dashboard-container">
+
+    <!-- LEFT COLUMN: BLOCK & MEMPOOL TELEMETRY -->
+    <section class="left-col" style="display:flex; flex-direction:column; gap:24px;">
+
+      <!-- Hero Block Height Card -->
+      <div class="hud-card">
+        <div class="card-header">
+          <span class="card-title"><span class="card-title-accent">◆</span> BLOCK HEIGHT</span>
+          <span id="valProgressPct" style="font-family:var(--font-mono); color:var(--neon-gold); font-weight:700;">0.00%</span>
+        </div>
+        <div class="hero-val gold" id="valBlockHeight">0</div>
+        <div style="font-size:12px; color:var(--text-muted); display:flex; justify-content:space-between;">
+          <span>Target Headers:</span>
+          <span id="valHeaders" style="font-family:var(--font-mono); color:var(--text-main);">0</span>
+        </div>
+
+        <div class="progress-track">
+          <div class="progress-fill" id="progressBarFill" style="width: 0%;"></div>
+        </div>
+        <div style="display:flex; justify-content:space-between; font-size:11px; color:var(--text-muted); font-family:var(--font-mono);">
+          <span>GENESIS #0</span>
+          <span>TIP SYNCHRONIZED</span>
+        </div>
+      </div>
+
+      <!-- Network & Chain Card -->
+      <div class="hud-card">
+        <div class="card-header">
+          <span class="card-title"><span class="card-title-accent">◆</span> NETWORK METRICS</span>
+          <span style="font-family:var(--font-mono); font-size:11px; color:var(--neon-cyan);">MAINNET</span>
+        </div>
+
+        <div class="stat-row">
+          <span class="stat-label">Network Difficulty</span>
+          <span class="stat-value" id="valDifficulty">--</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-label">Connected Peers</span>
+          <span class="stat-value" id="valPeersCount" style="color:var(--neon-cyan);">0</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-label">Mempool Depth</span>
+          <span class="stat-value" id="valMempoolTxs">0 txs</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-label">Storage Prune Target</span>
+          <span class="stat-value" id="valPruneTarget" style="color:var(--neon-gold);">550 MB</span>
+        </div>
+      </div>
+
+    </section>
+
+    <!-- CENTER COLUMN: 3D DOT-MATRIX EARTH GLOBE -->
+    <section class="center-col">
+      <div class="hud-card" style="height:100%; display:flex; flex-direction:column; justify-content:space-between;">
+        <div class="card-header">
+          <span class="card-title"><span class="card-title-accent">◈</span> GLOBAL BITCOIN PEER MATRIX</span>
+          <span style="font-family:var(--font-mono); font-size:11px; color:var(--neon-green);">● P2P ACTIVE</span>
+        </div>
+
+        <div class="globe-stage">
+          <canvas id="globeCanvas" width="520" height="440"></canvas>
+
+          <!-- Top-Left HUD Info -->
+          <div class="globe-hud-overlay">
+            <div>NODE LOC: <strong>ORANGE PI ZERO 3</strong></div>
+            <div>PEERS: <span id="globePeerCount" style="color:var(--neon-green); font-weight:700;">0</span></div>
+            <div>RECV: <span id="globeTrafficRecv" style="color:var(--neon-cyan);">0 MB</span></div>
+            <div>SENT: <span id="globeTrafficSent" style="color:var(--neon-gold);">0 MB</span></div>
+          </div>
+
+          <!-- Bottom-Right Coordinates -->
+          <div class="globe-hud-coords">
+            <div>SYSTEM: <strong>ARMBIAN TRIXIE</strong></div>
+            <div>STATUS: <strong>AUTONOMOUS</strong></div>
+          </div>
+        </div>
+
+        <div style="text-align:center; font-size:11px; color:var(--text-muted); font-family:var(--font-mono); padding-top:8px;">
+          CLICK & DRAG TO ROTATE 3D NODE MESH
+        </div>
+      </div>
+    </section>
+
+    <!-- RIGHT COLUMN: HARDWARE TELEMETRY & CLI CONSOLE -->
+    <section class="right-col" style="display:flex; flex-direction:column; gap:24px;">
+
+      <!-- Host Hardware Telemetry Card -->
+      <div class="hud-card">
+        <div class="card-header">
+          <span class="card-title"><span class="card-title-accent">◆</span> HARDWARE TELEMETRY</span>
+          <span style="font-family:var(--font-mono); font-size:11px; color:var(--neon-gold);">H618 SOC</span>
+        </div>
+
+        <div class="stat-row">
+          <span class="stat-label">CPU Temperature</span>
+          <span class="stat-value" id="valCpuTemp" style="color:var(--neon-green); font-size:16px;">-- °C</span>
+        </div>
+
+        <div style="margin-top:10px;">
+          <div style="display:flex; justify-content:space-between; font-size:12px; margin-bottom:4px;">
+            <span style="color:var(--text-muted);">RAM + ZRAM (1.5 GB)</span>
+            <span id="valRamUsage" style="font-family:var(--font-mono); font-weight:600;">0 MB</span>
+          </div>
+          <div class="progress-track" style="height:6px; margin:0 0 10px 0;">
+            <div class="progress-fill" id="ramBarFill" style="background:var(--neon-cyan); width:0%;"></div>
+          </div>
+        </div>
+
+        <div>
+          <div style="display:flex; justify-content:space-between; font-size:12px; margin-bottom:4px;">
+            <span style="color:var(--text-muted);">MicroSD Storage</span>
+            <span id="valDiskStorage" style="font-family:var(--font-mono); font-weight:600;">0 GB</span>
+          </div>
+          <div class="progress-track" style="height:6px; margin:0 0 10px 0;">
+            <div class="progress-fill" id="diskBarFill" style="background:var(--neon-gold); width:0%;"></div>
+          </div>
+        </div>
+
+        <div class="stat-row" style="border:none; padding-bottom:0;">
+          <span class="stat-label">Load Average (1/5/15m)</span>
+          <span class="stat-value" id="valLoadAvg">0.00 0.00 0.00</span>
+        </div>
+      </div>
+
+      <!-- Web RPC Console Card -->
+      <div class="hud-card">
+        <div class="card-header">
+          <span class="card-title"><span class="card-title-accent">◆</span> RPC COMMAND CONSOLE</span>
+        </div>
+
+        <div class="console-body" id="consoleBody">
+          <div>// Bitcoin Core RPC Console Initialized</div>
+          <div>// Type 'getblockchaininfo', 'getpeerinfo', or 'getmininginfo'</div>
+        </div>
+
+        <div class="console-input-row">
+          <input type="text" id="consoleInput" class="console-input" placeholder="getblockchaininfo" autocomplete="off">
+          <button id="consoleSubmitBtn" class="console-btn">EXEC</button>
+        </div>
+      </div>
+
+    </section>
+
+    <!-- BOTTOM ROW: CONNECTED PEER MATRIX TABLE -->
+    <section class="peer-table-card hud-card">
+      <div class="card-header">
+        <span class="card-title"><span class="card-title-accent">◆</span> CONNECTED P2P PEER MATRIX</span>
+        <span style="font-family:var(--font-mono); font-size:11px; color:var(--text-muted);">LIVE PEER TOPOLOGY</span>
+      </div>
+
+      <div style="overflow-x:auto;">
+        <table class="peer-table">
+          <thead>
+            <tr>
+              <th>Peer Address</th>
+              <th>Direction</th>
+              <th>Client Subversion</th>
+              <th>Ping Latency</th>
+              <th>Network Traffic</th>
+              <th>Synced Height</th>
+            </tr>
+          </thead>
+          <tbody id="peerTableBody">
+            <tr>
+              <td colspan="6" style="text-align:center; color:var(--text-muted); padding:20px;">
+                Loading active peer connections...
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- JavaScript Controllers -->
+  <script src="/static/globe.js"></script>
+  <script src="/static/dashboard.js"></script>
+</body>
+</html>
