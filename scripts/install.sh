@@ -5,7 +5,7 @@
 
 set -e
 
-BTC_VERSION="28.0"
+BTC_VERSION="31.1"
 BTC_ARCH="aarch64-linux-gnu"
 BTC_TAR="bitcoin-${BTC_VERSION}-${BTC_ARCH}.tar.gz"
 BTC_URL="https://bitcoincore.org/bin/bitcoin-core-${BTC_VERSION}/${BTC_TAR}"
@@ -16,6 +16,7 @@ APP_DIR="/opt/pruned-btcnode"
 
 echo "===================================================================="
 echo " Starting Installation: Bitcoin Core Pruned Node for Orange Pi Zero 3"
+echo " Target Version: Bitcoin Core v${BTC_VERSION}"
 echo "===================================================================="
 
 if [ "$EUID" -ne 0 ]; then
@@ -55,16 +56,15 @@ if [ -f "config/zram-tools.conf" ]; then
 fi
 systemctl restart zramswap 2>/dev/null || true
 
-# 3. Configure Orange Pi SPI Overlay (Supports both Armbian & Orange Pi OS naming)
+# 3. Configure Orange Pi SPI Overlay (Supports Armbian with bananapi-m4-spi1-cs0-cs1-spidev)
 echo "[3/9] Checking SPI overlays in boot configuration..."
 if [ -f "/boot/armbianEnv.txt" ]; then
     BOOT_CONF="/boot/armbianEnv.txt"
-    # On Armbian with overlay_prefix=sun50i-h616, overlays are spidev1_0 and spidev1_1
-    sed -i 's/overlays=.*/overlays=spidev1_0 spidev1_1/' "$BOOT_CONF"
+    sed -i 's/overlays=.*/overlays=bananapi-m4-spi1-cs0-cs1-spidev/' "$BOOT_CONF"
     if ! grep -q "overlays=" "$BOOT_CONF"; then
-        echo "overlays=spidev1_0 spidev1_1" >> "$BOOT_CONF"
+        echo "overlays=bananapi-m4-spi1-cs0-cs1-spidev" >> "$BOOT_CONF"
     fi
-    echo "Configured Armbian SPI overlays (spidev1_0 spidev1_1) in $BOOT_CONF."
+    echo "Configured Armbian SPI overlay in $BOOT_CONF."
 elif [ -f "/boot/orangepiEnv.txt" ]; then
     BOOT_CONF="/boot/orangepiEnv.txt"
     if ! grep -q "spi1-cs1-spidev" "$BOOT_CONF"; then
@@ -96,6 +96,7 @@ mkdir -p /etc/pruned-btcnode
 
 if [ -f "config/bitcoin.conf" ]; then
     cp config/bitcoin.conf "$CONF_DIR/bitcoin.conf"
+    sed -i '1s/^\xEF\xBB\xBF//' "$CONF_DIR/bitcoin.conf"
 fi
 
 chown -R bitcoin:bitcoin "$DATA_DIR"
@@ -128,6 +129,7 @@ echo "[8/9] Installing scripts and telemetry daemon..."
 mkdir -p "$APP_DIR"
 cp -r display "$APP_DIR/"
 cp -r scripts "$APP_DIR/"
+sed -i '1s/^\xEF\xBB\xBF//' "$APP_DIR/scripts/"*.sh "$APP_DIR/scripts/"*.py "$APP_DIR/display/"*.py 2>/dev/null || true
 chown -R root:root "$APP_DIR"
 chmod +x "$APP_DIR/display/btc_display.py"
 chmod +x "$APP_DIR/scripts/"*.sh
@@ -156,11 +158,5 @@ if [ -f "/etc/pruned-btcnode/wifi.conf" ] || [ -f "/boot/wifi.conf" ]; then
 fi
 
 echo "===================================================================="
-echo " Installation Complete!"
-echo " "
-echo " Next Steps:"
-echo " 1. If this is your first time enabling SPI, reboot the Orange Pi:"
-echo "    sudo reboot"
-echo " 2. Check status anytime:"
-echo "    /opt/pruned-btcnode/scripts/btc-status.sh"
+echo " Installation Complete! (Bitcoin Core v${BTC_VERSION})"
 echo "===================================================================="
