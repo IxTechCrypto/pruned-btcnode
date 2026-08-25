@@ -274,7 +274,12 @@ class DashboardHandler(BaseHTTPRequestHandler):
         if isinstance(peers, list):
             for p in peers:
                 addr = p.get("addr", "")
-                ip = addr.split(":")[0] if ":" in addr else addr
+                if addr.startswith("[") and "]:" in addr:
+                    ip = addr.split("]:")[0] + "]"
+                elif ":" in addr:
+                    ip = addr.split(":")[0]
+                else:
+                    ip = addr
                 peer_list.append({
                     "id": p.get("id"),
                     "addr": addr,
