@@ -11,7 +11,7 @@ ExecStart=/usr/bin/python3 /opt/pruned-btcnode/web/server.py
 Restart=always
 RestartSec=5s
 Environment=PYTHONUNBUFFERED=1
-Environment=PORT=8334
+Environment=PORT=8338
 
 [Install]
 WantedBy=multi-user.target

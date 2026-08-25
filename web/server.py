@@ -17,7 +17,7 @@ import urllib.error
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from socketserver import ThreadingMixIn
 
-PORT = int(os.environ.get("PORT", 8334))
+PORT = int(os.environ.get("PORT", 8338))
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 STATIC_DIR = os.path.join(BASE_DIR, "static")
 
@@ -309,6 +309,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
 
 
 class ThreadedHTTPServer(ThreadingMixIn, HTTPServer):
+    allow_reuse_address = True
     daemon_threads = True
 
 
