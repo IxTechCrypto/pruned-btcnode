@@ -3,13 +3,15 @@ ST7789 SPI LCD Display Driver for Waveshare 2.0" 240x320 LCD
 Target: Orange Pi Zero 3 (Allwinner H618 / sun50i-h616)
 Supports both libgpiod 1.x (Debian Bullseye/Bookworm) and 2.x (Debian Trixie / Ubuntu 24.04).
 
-Pinout (Physical 26-pin Header):
-  - CS:  Pin 26 -> PH9  (spidev1.1)
-  - DC:  Pin 22 -> PC7  (line 71 on 288-line pinctrl)
-  - RST: Pin 18 -> PC14 (line 78 on 288-line pinctrl)
-  - BL:  Pin 16 -> PC15 (line 79 on 288-line pinctrl)
-  - CLK: Pin 23 -> SPI1_CLK
-  - DIN: Pin 19 -> SPI1_MOSI
+Verified 13-column (26-pin) Header Pinout:
+  - VCC: Pin 1 (3.3V)
+  - GND: Pin 20 (GND) or Pin 6
+  - DIN: Pin 19 -> PH7 (SPI1_MOSI)
+  - CLK: Pin 23 -> PH6 (SPI1_CLK)
+  - CS:  Pin 26 -> PH9 (SPI1_CS1 / /dev/spidev1.1)
+  - DC:  Pin 22 -> PC10 (Line 74 on gpiochip1)
+  - RST: Pin 18 -> PC14 (Line 78 on gpiochip1)
+  - BL:  Pin 16 -> PC15 (Line 79 on gpiochip1)
 """
 
 import time
@@ -42,16 +44,16 @@ ST7789_RAMWR = 0x2C
 ST7789_MADCTL = 0x36
 ST7789_COLMOD = 0x3A
 
-# Default GPIO line offsets on Allwinner H618
-DEFAULT_DC_LINE = 71   # PC7
-DEFAULT_RST_LINE = 78  # PC14
-DEFAULT_BL_LINE = 79   # PC15
+# Default GPIO line offsets on Allwinner H618 (300b000.pinctrl)
+DEFAULT_DC_LINE = 74   # PC10 (Pin 22)
+DEFAULT_RST_LINE = 78  # PC14 (Pin 18)
+DEFAULT_BL_LINE = 79   # PC15 (Pin 16)
 
 
 def find_main_gpiochip():
     """Find the 288-line main GPIO controller (300b000.pinctrl)."""
     if gpiod is None:
-        return "/dev/gpiochip0"
+        return "/dev/gpiochip1"
     
     candidates = []
     if os.path.exists("/dev"):
@@ -59,22 +61,20 @@ def find_main_gpiochip():
             if f.startswith("gpiochip"):
                 candidates.append(os.path.join("/dev", f))
     
-    # Check lines on each chip
     for c in candidates:
         try:
             chip = gpiod.Chip(c)
-            # Check for libgpiod 2.x
             if hasattr(chip, "get_info"):
                 lines = chip.get_info().num_lines
             else:
                 lines = chip.num_lines()
             chip.close()
-            if lines > 64:  # 288-line main controller
+            if lines > 64:  # 288-line controller
                 return c
         except Exception:
             pass
             
-    return candidates[0] if candidates else "/dev/gpiochip0"
+    return candidates[-1] if candidates else "/dev/gpiochip1"
 
 
 class ST7789:
@@ -84,7 +84,7 @@ class ST7789:
         height=320,
         spi_bus=1,
         spi_device=1,
-        spi_speed_hz=40000000,
+        spi_speed_hz=32000000,
         dc_pin=DEFAULT_DC_LINE,
         rst_pin=DEFAULT_RST_LINE,
         bl_pin=DEFAULT_BL_LINE,
@@ -120,16 +120,16 @@ class ST7789:
                 self.spi.max_speed_hz = self.spi_speed_hz
                 self.spi.mode = 0b00
             except Exception as e:
-                print(f"[WARN] Failed to open SPI device: {e}")
+                print(f"[WARN] Failed to open SPI device ({self.spi_bus}.{self.spi_device}): {e}")
         else:
             print("[WARN] spidev library not found. Running in simulation mode.")
 
-        # 2. Initialize GPIO (Supports both libgpiod v1.x and v2.x)
+        # 2. Initialize GPIO
         if gpiod is not None and os.path.exists(self.gpiochip_path):
             try:
                 self.chip = gpiod.Chip(self.gpiochip_path)
                 
-                # Check for libgpiod 1.x API
+                # libgpiod 1.x API
                 if hasattr(self.chip, "get_line"):
                     self.dc_line = self.chip.get_line(self.dc_pin)
                     self.dc_line.request(consumer="st7789_dc", type=gpiod.LINE_REQ_DIR_OUT)
@@ -140,7 +140,7 @@ class ST7789:
                     self.bl_line = self.chip.get_line(self.bl_pin)
                     self.bl_line.request(consumer="st7789_bl", type=gpiod.LINE_REQ_DIR_OUT)
                 
-                # Check for libgpiod 2.x API
+                # libgpiod 2.x API
                 elif hasattr(self.chip, "request_lines"):
                     import gpiod.line as gline
                     settings_out_low = gpiod.LineSettings(direction=gline.Direction.OUTPUT, output_value=gline.Value.INACTIVE)
@@ -154,8 +154,6 @@ class ST7789:
                     self.gpiod_v2_request = self.chip.request_lines(consumer="st7789", config=config)
             except Exception as e:
                 print(f"[WARN] libgpiod initialization failed on {self.gpiochip_path}: {e}")
-        else:
-            print("[WARN] libgpiod not available or gpiochip device node not found.")
 
         self.reset()
         self.init_display()
