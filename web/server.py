@@ -12,6 +12,7 @@ import json
 import socket
 import shutil
 import base64
+import subprocess
 import urllib.request
 import urllib.error
 from http.server import HTTPServer, BaseHTTPRequestHandler
@@ -48,6 +49,20 @@ class BitcoinRPC:
     def call(self, method, params=None):
         if params is None:
             params = []
+
+        # 1. Native bitcoin-cli execution
+        try:
+            cmd = ["bitcoin-cli", "-datadir=/var/lib/bitcoind", method] + [str(p) for p in params]
+            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=4)
+            if proc.returncode == 0 and proc.stdout.strip():
+                try:
+                    return json.loads(proc.stdout)
+                except Exception:
+                    return proc.stdout.strip()
+        except Exception:
+            pass
+
+        # 2. HTTP JSON-RPC fallback
         payload = json.dumps({
             "jsonrpc": "1.0",
             "id": "web-hud",
@@ -65,7 +80,7 @@ class BitcoinRPC:
             with urllib.request.urlopen(req, timeout=4) as resp:
                 data = json.loads(resp.read().decode())
                 return data.get("result")
-        except Exception as e:
+        except Exception:
             return None
 
 
@@ -256,21 +271,22 @@ class DashboardHandler(BaseHTTPRequestHandler):
     def _handle_peers(self):
         peers = rpc.call("getpeerinfo") or []
         peer_list = []
-        for p in peers:
-            addr = p.get("addr", "")
-            ip = addr.split(":")[0] if ":" in addr else addr
-            peer_list.append({
-                "id": p.get("id"),
-                "addr": addr,
-                "ip": ip,
-                "subver": p.get("subver", "").strip("/"),
-                "inbound": p.get("inbound", False),
-                "pingtime": round(p.get("pingtime", 0.0) * 1000, 1),
-                "bytesrecv": p.get("bytesrecv", 0),
-                "bytessent": p.get("bytessent", 0),
-                "synced_headers": p.get("synced_headers", 0),
-                "synced_blocks": p.get("synced_blocks", 0),
-            })
+        if isinstance(peers, list):
+            for p in peers:
+                addr = p.get("addr", "")
+                ip = addr.split(":")[0] if ":" in addr else addr
+                peer_list.append({
+                    "id": p.get("id"),
+                    "addr": addr,
+                    "ip": ip,
+                    "subver": p.get("subver", "").strip("/"),
+                    "inbound": p.get("inbound", False),
+                    "pingtime": round(p.get("pingtime", 0.0) * 1000, 1),
+                    "bytesrecv": p.get("bytesrecv", 0),
+                    "bytessent": p.get("bytessent", 0),
+                    "synced_headers": p.get("synced_headers", 0),
+                    "synced_blocks": p.get("synced_blocks", 0),
+                })
         self._send_json({"peers": peer_list, "count": len(peer_list)})
 
     def _handle_custom_rpc(self):
