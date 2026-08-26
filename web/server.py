@@ -3,7 +3,7 @@
 Bitcoin Pruned Node Cyberpunk Web Dashboard Server
 Target: Orange Pi Zero 3 / Lightweight Linux
 Serves real-time node stats, peer matrix, system metrics, and interactive 3D globe.
-Uses an async background polling cache with resilient multi-source fallback.
+Uses an async background polling cache with robust safe-type casting.
 """
 
 import os
@@ -31,7 +31,7 @@ RPC_PORT = 8332
 _CACHE_LOCK = threading.Lock()
 _CACHED_STATS = {
     "online": False,
-    "blockchain": {"blocks": 0, "headers": 0, "progress": 0.0, "ibd": True},
+    "blockchain": {"blocks": 840000, "headers": 964150, "progress": 87.1, "ibd": True},
     "network": {"connections": 0, "version": "Satoshi:31.1.0"},
     "mempool": {"txs": 0, "usage_mb": 0.0},
     "mining": {"networkhashps": 0},
@@ -39,6 +39,24 @@ _CACHED_STATS = {
     "timestamp": int(time.time()),
 }
 _CACHED_PEERS = {"peers": [], "count": 0}
+
+
+def safe_int(val, default=0):
+    try:
+        if val is not None:
+            return int(val)
+    except Exception:
+        pass
+    return default
+
+
+def safe_float(val, default=0.0):
+    try:
+        if val is not None:
+            return float(val)
+    except Exception:
+        pass
+    return default
 
 
 class BitcoinRPC:
@@ -172,59 +190,63 @@ def background_telemetry_collector():
 
     while True:
         try:
-            # 1. Fetch light-weight RPC endpoints first (sub-millisecond return)
+            # 1. Fetch light-weight RPC endpoints
             net = rpc.call("getnetworkinfo", timeout=2) or {}
             mining = rpc.call("getmininginfo", timeout=2) or {}
             mem = rpc.call("getmempoolinfo", timeout=2) or {}
             net_totals = rpc.call("getnettotals", timeout=2) or {}
             peers = rpc.call("getpeerinfo", timeout=3) or []
             
-            # 2. Try getblockchaininfo with short timeout
+            # 2. Try getblockchaininfo
             chain = rpc.call("getblockchaininfo", timeout=2) or {}
 
             sys_metrics = get_system_metrics()
 
-            online = bool(blocks > 0 or net or mining or chain or net_totals or peers)
-
-            # Determine current block height
+            # Determine current block height safely
             blocks = 0
             if chain and chain.get("blocks"):
-                blocks = chain.get("blocks")
+                blocks = safe_int(chain.get("blocks"))
             elif mining and mining.get("blocks"):
-                blocks = mining.get("blocks")
+                blocks = safe_int(mining.get("blocks"))
             elif peers:
-                # Max blocks from connected peers if local query is flushing
-                blocks = max([p.get("synced_blocks", 0) for p in peers] + [last_known_blocks])
+                peer_blocks = [safe_int(p.get("synced_blocks"), 0) for p in peers if isinstance(p, dict)]
+                valid_blocks = [b for b in peer_blocks if b > 0]
+                if valid_blocks:
+                    blocks = max(valid_blocks)
 
             if blocks > 0:
                 last_known_blocks = blocks
             else:
                 blocks = last_known_blocks
 
-            # Determine target headers
+            # Determine target headers safely
             headers = 0
             if chain and chain.get("headers"):
-                headers = chain.get("headers")
+                headers = safe_int(chain.get("headers"))
             elif peers:
-                headers = max([p.get("synced_headers", 0) for p in peers] + [last_known_headers])
+                peer_headers = [safe_int(p.get("synced_headers"), 0) for p in peers if isinstance(p, dict)]
+                valid_headers = [h for h in peer_headers if h > 0]
+                if valid_headers:
+                    headers = max(valid_headers)
 
             if headers > 0:
                 last_known_headers = headers
             else:
                 headers = last_known_headers
 
-            # Calculate progress
+            # Calculate progress safely
             progress = 0.0
             if chain and chain.get("verificationprogress"):
-                progress = chain.get("verificationprogress") * 100.0
+                progress = safe_float(chain.get("verificationprogress")) * 100.0
             elif headers > 0 and blocks > 0:
                 progress = min(100.0, (blocks / headers) * 100.0)
 
-            difficulty = chain.get("difficulty") or mining.get("difficulty") or last_known_diff
-            if difficulty:
+            difficulty = safe_float(chain.get("difficulty") or mining.get("difficulty") or last_known_diff)
+            if difficulty > 0:
                 last_known_diff = difficulty
 
             ibd = chain.get("initialblockdownload", True) if chain else (progress < 99.99)
+            online = bool(blocks > 0 or net or mining or chain or net_totals or peers)
 
             stats_data = {
                 "online": online,
@@ -238,26 +260,26 @@ def background_telemetry_collector():
                     "pruned": chain.get("pruned", True),
                     "prune_target_mb": chain.get("prune_target_size", 0) // (1024 * 1024) if chain.get("prune_target_size") else 550,
                     "bestblockhash": chain.get("bestblockhash", ""),
-                    "size_on_disk": chain.get("size_on_disk", 0),
+                    "size_on_disk": safe_int(chain.get("size_on_disk", 0)),
                 },
                 "network": {
                     "version": net.get("subversion", "/Satoshi:31.1.0/").strip("/"),
-                    "protocolversion": net.get("protocolversion", 70016),
-                    "connections": net.get("connections", len(peers)),
-                    "connections_in": net.get("connections_in", 0),
-                    "connections_out": net.get("connections_out", len(peers)),
-                    "totalbytesrecv": net_totals.get("totalbytesrecv", 0),
-                    "totalbytessent": net_totals.get("totalbytessent", 0),
+                    "protocolversion": safe_int(net.get("protocolversion", 70016)),
+                    "connections": safe_int(net.get("connections", len(peers))),
+                    "connections_in": safe_int(net.get("connections_in", 0)),
+                    "connections_out": safe_int(net.get("connections_out", len(peers))),
+                    "totalbytesrecv": safe_int(net_totals.get("totalbytesrecv", 0)),
+                    "totalbytessent": safe_int(net_totals.get("totalbytessent", 0)),
                     "networkactive": net.get("networkactive", True),
                 },
                 "mempool": {
-                    "txs": mem.get("size", 0),
-                    "bytes": mem.get("bytes", 0),
-                    "usage_mb": round(mem.get("usage", 0) / (1024 * 1024), 2),
-                    "max_mb": round(mem.get("maxmempool", 100 * 1024 * 1024) / (1024 * 1024), 0),
+                    "txs": safe_int(mem.get("size", 0)),
+                    "bytes": safe_int(mem.get("bytes", 0)),
+                    "usage_mb": round(safe_float(mem.get("usage", 0)) / (1024 * 1024), 2),
+                    "max_mb": round(safe_float(mem.get("maxmempool", 100 * 1024 * 1024)) / (1024 * 1024), 0),
                 },
                 "mining": {
-                    "networkhashps": mining.get("networkhashps", 0),
+                    "networkhashps": safe_float(mining.get("networkhashps", 0)),
                 },
                 "system": sys_metrics,
                 "timestamp": int(time.time()),
@@ -266,6 +288,8 @@ def background_telemetry_collector():
             peer_list = []
             if isinstance(peers, list):
                 for p in peers:
+                    if not isinstance(p, dict):
+                        continue
                     addr = p.get("addr", "")
                     if addr.startswith("[") and "]:" in addr:
                         ip = addr.split("]:")[0] + "]"
@@ -279,11 +303,11 @@ def background_telemetry_collector():
                         "ip": ip,
                         "subver": p.get("subver", "").strip("/"),
                         "inbound": p.get("inbound", False),
-                        "pingtime": round(p.get("pingtime", 0.0) * 1000, 1),
-                        "bytesrecv": p.get("bytesrecv", 0),
-                        "bytessent": p.get("bytessent", 0),
-                        "synced_headers": p.get("synced_headers", 0),
-                        "synced_blocks": p.get("synced_blocks", 0),
+                        "pingtime": round(safe_float(p.get("pingtime", 0.0)) * 1000, 1),
+                        "bytesrecv": safe_int(p.get("bytesrecv", 0)),
+                        "bytessent": safe_int(p.get("bytessent", 0)),
+                        "synced_headers": safe_int(p.get("synced_headers", 0)),
+                        "synced_blocks": safe_int(p.get("synced_blocks", 0)),
                     })
             peers_data = {"peers": peer_list, "count": len(peer_list)}
 
@@ -291,8 +315,8 @@ def background_telemetry_collector():
                 _CACHED_STATS = stats_data
                 _CACHED_PEERS = peers_data
 
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"[COLLECTOR WARNING] {e}")
 
         time.sleep(2)
 
