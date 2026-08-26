@@ -26,13 +26,9 @@ STATIC_DIR = os.path.join(BASE_DIR, "static")
 
 CONF_FILE = "/etc/bitcoin/bitcoin.conf"
 DATA_DIR = "/var/lib/bitcoind"
+COOKIE_FILE = "/var/lib/bitcoind/.cookie"
 RPC_HOST = "127.0.0.1"
 RPC_PORT = 8332
-COOKIE_PATHS = [
-    "/var/lib/bitcoind/.cookie",
-    os.path.expanduser("~/.bitcoin/.cookie"),
-    os.path.expanduser("~orangepi/.bitcoin/.cookie"),
-]
 
 # Thread-safe global cache
 _CACHE_LOCK = threading.Lock()
@@ -57,7 +53,7 @@ class BitcoinRPC:
             params = []
 
         try:
-            cmd = ["bitcoin-cli", f"-conf={CONF_FILE}", f"-datadir={DATA_DIR}", method] + [str(p) for p in params]
+            cmd = ["bitcoin-cli", f"-conf={CONF_FILE}", f"-datadir={DATA_DIR}", f"-rpccookiefile={COOKIE_FILE}", method] + [str(p) for p in params]
             proc = subprocess.run(cmd, capture_output=True, text=True, timeout=8)
             if proc.returncode == 0 and proc.stdout.strip():
                 try:
