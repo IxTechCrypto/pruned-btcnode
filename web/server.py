@@ -79,7 +79,7 @@ class BitcoinRPC:
         )
 
         try:
-            with urllib.request.urlopen(req, timeout=5) as resp:
+            with urllib.request.urlopen(req, timeout=20) as resp:
                 res = json.loads(resp.read().decode("utf-8"))
                 return res.get("result")
         except Exception:
