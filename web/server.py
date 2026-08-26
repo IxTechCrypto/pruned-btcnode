@@ -24,6 +24,8 @@ PORT = int(os.environ.get("PORT", 8338))
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 STATIC_DIR = os.path.join(BASE_DIR, "static")
 
+CONF_FILE = "/etc/bitcoin/bitcoin.conf"
+DATA_DIR = "/var/lib/bitcoind"
 RPC_HOST = "127.0.0.1"
 RPC_PORT = 8332
 COOKIE_PATHS = [
@@ -55,7 +57,7 @@ class BitcoinRPC:
             params = []
 
         try:
-            cmd = ["bitcoin-cli", "-datadir=/var/lib/bitcoind", method] + [str(p) for p in params]
+            cmd = ["bitcoin-cli", f"-conf={CONF_FILE}", f"-datadir={DATA_DIR}", method] + [str(p) for p in params]
             proc = subprocess.run(cmd, capture_output=True, text=True, timeout=8)
             if proc.returncode == 0 and proc.stdout.strip():
                 try:
@@ -102,7 +104,7 @@ def get_system_metrics():
     disk_free = 0.0
     disk_total = 0.0
     try:
-        d = "/var/lib/bitcoind" if os.path.exists("/var/lib/bitcoind") else "/"
+        d = DATA_DIR if os.path.exists(DATA_DIR) else "/"
         usage = shutil.disk_usage(d)
         disk_free = round(usage.free / (1024**3), 1)
         disk_total = round(usage.total / (1024**3), 1)
@@ -230,7 +232,7 @@ def background_telemetry_collector():
                 _CACHED_STATS = stats_data
                 _CACHED_PEERS = peers_data
 
-        except Exception as e:
+        except Exception:
             pass
 
         time.sleep(3)
@@ -328,7 +330,6 @@ class ThreadedHTTPServer(ThreadingMixIn, HTTPServer):
 
 
 def main():
-    # Start background telemetry collector thread
     t = threading.Thread(target=background_telemetry_collector, daemon=True)
     t.start()
 
