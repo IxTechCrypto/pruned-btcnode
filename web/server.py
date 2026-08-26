@@ -3,7 +3,7 @@
 Bitcoin Pruned Node Cyberpunk Web Dashboard Server
 Target: Orange Pi Zero 3 / Lightweight Linux
 Serves real-time node stats, peer matrix, system metrics, and interactive 3D globe.
-Uses an async background polling cache to eliminate RPC queue blocking during Initial Block Download.
+Uses an async background polling cache over direct HTTP JSON-RPC.
 """
 
 import os
@@ -14,7 +14,6 @@ import socket
 import shutil
 import base64
 import threading
-import subprocess
 import urllib.request
 import urllib.error
 from http.server import HTTPServer, BaseHTTPRequestHandler
@@ -24,8 +23,6 @@ PORT = int(os.environ.get("PORT", 8338))
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 STATIC_DIR = os.path.join(BASE_DIR, "static")
 
-CONF_FILE = "/etc/bitcoin/bitcoin.conf"
-DATA_DIR = "/var/lib/bitcoind"
 COOKIE_FILE = "/var/lib/bitcoind/.cookie"
 RPC_HOST = "127.0.0.1"
 RPC_PORT = 8332
@@ -52,18 +49,41 @@ class BitcoinRPC:
         if params is None:
             params = []
 
-        try:
-            cmd = ["bitcoin-cli", f"-conf={CONF_FILE}", f"-datadir={DATA_DIR}", f"-rpccookiefile={COOKIE_FILE}", method] + [str(p) for p in params]
-            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=8)
-            if proc.returncode == 0 and proc.stdout.strip():
-                try:
-                    return json.loads(proc.stdout)
-                except Exception:
-                    return proc.stdout.strip()
-        except Exception:
-            pass
+        auth_header = None
+        if os.path.exists(COOKIE_FILE):
+            try:
+                with open(COOKIE_FILE, "r") as f:
+                    cookie = f.read().strip()
+                if ":" in cookie:
+                    auth_header = "Basic " + base64.b64encode(cookie.encode("utf-8")).decode("utf-8")
+            except Exception:
+                pass
 
-        return None
+        if not auth_header:
+            return None
+
+        payload = json.dumps({
+            "jsonrpc": "1.0",
+            "id": "dash",
+            "method": method,
+            "params": params,
+        }).encode("utf-8")
+
+        req = urllib.request.Request(
+            self.url,
+            data=payload,
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": auth_header,
+            }
+        )
+
+        try:
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                res = json.loads(resp.read().decode("utf-8"))
+                return res.get("result")
+        except Exception:
+            return None
 
 
 rpc = BitcoinRPC()
@@ -100,7 +120,7 @@ def get_system_metrics():
     disk_free = 0.0
     disk_total = 0.0
     try:
-        d = DATA_DIR if os.path.exists(DATA_DIR) else "/"
+        d = "/var/lib/bitcoind" if os.path.exists("/var/lib/bitcoind") else "/"
         usage = shutil.disk_usage(d)
         disk_free = round(usage.free / (1024**3), 1)
         disk_total = round(usage.total / (1024**3), 1)
