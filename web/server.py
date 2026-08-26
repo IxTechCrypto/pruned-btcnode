@@ -184,7 +184,7 @@ def background_telemetry_collector():
 
             sys_metrics = get_system_metrics()
 
-            online = bool(net or mining or chain)
+            online = bool(blocks > 0 or net or mining or chain or net_totals or peers)
 
             # Determine current block height
             blocks = 0
