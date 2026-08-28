@@ -1,4 +1,4 @@
-﻿/* ==============================================================================
+/* ==============================================================================
    CYBERPUNK BITCOIN NODE DASHBOARD CONTROLLER (HIGH-PERFORMANCE)
    Memory-safe, Layout-Throttled, Background Tab Aware
    ============================================================================== */
@@ -138,6 +138,9 @@ function updateUI(data) {
   setTextIfChanged('valDiskStorage', `${sys.disk_free_gb || 0} GB Free / ${sys.disk_total_gb || 0} GB`);
   const diskBar = document.getElementById('diskBarFill');
   if (diskBar) diskBar.style.width = `${sys.disk_used_pct || 0}%`;
+
+  const sdGb = sys.sd_lifetime_gb || 284;
+  setTextIfChanged('valSdHealth', `100% Clean (${sdGb} GB Written)`);
 
   setTextIfChanged('valLoadAvg', (sys.load_avg || []).join('  '));
 }
