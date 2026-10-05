@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 """
 Bitcoin Pruned Node Cyberpunk Web Dashboard Server
 Target: Orange Pi Zero 3 / Lightweight Linux
@@ -22,7 +22,11 @@ PORT = int(os.environ.get("PORT", 8338))
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 STATIC_DIR = os.path.join(BASE_DIR, "static")
 
-COOKIE_FILE = "/var/lib/bitcoind/.cookie"
+COOKIE_PATHS = [
+    "/var/lib/bitcoind/.cookie",
+    "/root/.bitcoin/.cookie",
+    os.path.expanduser("~/.bitcoin/.cookie")
+]
 RPC_HOST = "127.0.0.1"
 RPC_PORT = 8332
 
@@ -30,24 +34,44 @@ RPC_PORT = 8332
 _CACHE_LOCK = threading.Lock()
 _CACHED_STATS = {
     "online": True,
-    "blockchain": {"blocks": 849735, "headers": 964444, "progress": 88.11, "ibd": True},
-    "network": {"connections": 3, "version": "Satoshi:31.1.0"},
-    "mempool": {"txs": 0, "usage_mb": 0.0},
-    "mining": {"networkhashps": 0},
+    "blockchain": {
+        "chain": "main",
+        "blocks": 0,
+        "headers": 0,
+        "progress": 0.0,
+        "ibd": True,
+        "difficulty": 0.0,
+        "pruned": True,
+        "prune_target_mb": 550,
+        "bestblockhash": "",
+        "size_on_disk": 0,
+    },
+    "network": {
+        "version": "Satoshi:31.1.0",
+        "protocolversion": 70016,
+        "connections": 0,
+        "connections_in": 0,
+        "connections_out": 0,
+        "totalbytesrecv": 0,
+        "totalbytessent": 0,
+        "networkactive": True,
+    },
+    "mempool": {"txs": 0, "bytes": 0, "usage_mb": 0.0, "max_mb": 100.0},
+    "mining": {"networkhashps": 0.0},
     "system": {
-        "ip": "192.168.4.75",
-        "cpu_temp": 42.5,
-        "ram_used_mb": 450,
+        "ip": "--",
+        "cpu_temp": 0.0,
+        "ram_used_mb": 0,
         "ram_total_mb": 1470,
-        "ram_pct": 30.6,
-        "disk_free_gb": 97.7,
-        "disk_total_gb": 116.4,
-        "disk_used_pct": 16.0,
-        "sd_lifetime_gb": 284.0,
-        "sd_health": "99.7% (Clean)",
-        "sd_model": "Samsung JD2S5",
+        "ram_pct": 0.0,
+        "disk_free_gb": 0.0,
+        "disk_total_gb": 0.0,
+        "disk_used_pct": 0.0,
+        "sd_lifetime_gb": 0.0,
+        "sd_health": "100% (Clean)",
+        "sd_model": "MicroSD",
         "uptime_sec": 0,
-        "load_avg": [1.2, 1.1, 1.0]
+        "load_avg": [0.0, 0.0, 0.0],
     },
     "timestamp": int(time.time()),
 }
@@ -76,20 +100,23 @@ class BitcoinRPC:
     def __init__(self):
         self.url = f"http://{RPC_HOST}:{RPC_PORT}"
 
-    def call(self, method, params=None, timeout=8):
+    def _get_auth_header(self):
+        for path in COOKIE_PATHS:
+            if os.path.exists(path):
+                try:
+                    with open(path, "r") as f:
+                        cookie = f.read().strip()
+                    if ":" in cookie:
+                        return "Basic " + base64.b64encode(cookie.encode("utf-8")).decode("utf-8")
+                except Exception:
+                    pass
+        return None
+
+    def call(self, method, params=None, timeout=15):
         if params is None:
             params = []
 
-        auth_header = None
-        if os.path.exists(COOKIE_FILE):
-            try:
-                with open(COOKIE_FILE, "r") as f:
-                    cookie = f.read().strip()
-                if ":" in cookie:
-                    auth_header = "Basic " + base64.b64encode(cookie.encode("utf-8")).decode("utf-8")
-            except Exception:
-                pass
-
+        auth_header = self._get_auth_header()
         if not auth_header:
             return None
 
@@ -159,7 +186,7 @@ def get_system_metrics():
         pass
 
     # MicroSD Wear & Health Telemetry
-    sd_lifetime_gb = 284.0
+    sd_lifetime_gb = 0.0
     for wp in [
         "/sys/fs/ext4/mmcblk0p1/lifetime_write_kbytes",
         "/sys/fs/ext4/mmcblk1p1/lifetime_write_kbytes"
@@ -172,7 +199,7 @@ def get_system_metrics():
             except Exception:
                 pass
 
-    sd_model = "Samsung MicroSD"
+    sd_model = "MicroSD"
     for np in [
         "/sys/block/mmcblk0/device/name",
         "/sys/block/mmcblk1/device/name"
@@ -198,7 +225,7 @@ def get_system_metrics():
     except Exception:
         pass
 
-    ip = "192.168.4.75"
+    ip = "127.0.0.1"
     try:
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         s.connect(("8.8.8.8", 80))
@@ -225,24 +252,37 @@ def get_system_metrics():
 
 
 def background_telemetry_collector():
-    """Background polling loop with peer persistence and safe timeouts."""
+    """Background polling loop querying bitcoind RPC for true real-time chain state."""
     global _CACHED_STATS, _CACHED_PEERS
-    last_known_blocks = 849735
-    last_known_headers = 964444
-    last_known_diff = 83675262295059.0
+    last_known_blocks = 0
+    last_known_headers = 0
+    last_known_diff = 0.0
     last_known_peers = []
-    last_known_conns = 3
+    last_known_conns = 0
+    last_known_ver_prog = 0.0
+    last_known_progress = 0.0
+    last_known_ibd = True
+    last_known_disk = 0
 
     while True:
         try:
-            # Stagger queries with adequate timeouts
-            mining = rpc.call("getmininginfo", timeout=5) or {}
-            time.sleep(1)
-            net = rpc.call("getnetworkinfo", timeout=5) or {}
-            time.sleep(1)
-            raw_peers = rpc.call("getpeerinfo", timeout=8)
-            time.sleep(1)
-            mem = rpc.call("getmempoolinfo", timeout=5) or {}
+            # 1. Primary Chain Info (with 15s timeout for high-load IBD)
+            chain = rpc.call("getblockchaininfo", timeout=15)
+
+            # 2. Network Info (Version, Connections)
+            net = rpc.call("getnetworkinfo", timeout=10)
+
+            # 3. Traffic Net Totals
+            net_totals = rpc.call("getnettotals", timeout=10) or {}
+
+            # 4. Peer Info
+            raw_peers = rpc.call("getpeerinfo", timeout=15)
+
+            # 5. Mempool Info
+            mem = rpc.call("getmempoolinfo", timeout=10) or {}
+
+            # 6. Mining Info (for Difficulty & Network Hashrate)
+            mining = rpc.call("getmininginfo", timeout=10) or {}
 
             sys_metrics = get_system_metrics()
 
@@ -275,41 +315,88 @@ def background_telemetry_collector():
                     last_known_peers = parsed_peers
                     last_known_conns = len(parsed_peers)
 
-            # Determine current block height safely
-            blocks = safe_int(mining.get("blocks"), 0)
-            if not blocks and last_known_peers:
+            if chain:
+                blocks = safe_int(chain.get("blocks"), 0)
+                headers = safe_int(chain.get("headers"), 0)
+                difficulty = safe_float(chain.get("difficulty"), 0.0)
+                ver_prog = safe_float(chain.get("verificationprogress"), 0.0)
+                ibd = bool(chain.get("initialblockdownload", True))
+                bestblockhash = chain.get("bestblockhash", "")
+                size_on_disk = safe_int(chain.get("size_on_disk"), 0)
+                prune_target = safe_int(chain.get("prune_target_size", 576716800)) // (1024 * 1024)
+
+                if blocks > 0:
+                    last_known_blocks = blocks
+                if headers > 0:
+                    last_known_headers = headers
+                if difficulty > 0:
+                    last_known_diff = difficulty
+                if size_on_disk > 0:
+                    last_known_disk = size_on_disk
+                last_known_ibd = ibd
+                last_known_ver_prog = ver_prog
+            else:
+                blocks = last_known_blocks
+                headers = last_known_headers
+                difficulty = last_known_diff
+                size_on_disk = last_known_disk
+                ibd = last_known_ibd
+                bestblockhash = ""
+                prune_target = 550
+
+            if difficulty == 0.0:
+                difficulty = safe_float(mining.get("difficulty"), last_known_diff)
+                if difficulty > 0:
+                    last_known_diff = difficulty
+
+            # Fallback block detection from peer telemetry if chain call timed out
+            if blocks == 0 and last_known_peers:
                 peer_blocks = [p["synced_blocks"] for p in last_known_peers if p.get("synced_blocks")]
                 if peer_blocks:
                     blocks = max(peer_blocks)
+                    last_known_blocks = blocks
 
-            if blocks > 0:
-                last_known_blocks = blocks
-            else:
-                blocks = last_known_blocks
-
-            # Determine target headers safely
-            headers = 0
-            if last_known_peers:
+            if headers == 0 and last_known_peers:
                 peer_headers = [p["synced_headers"] for p in last_known_peers if p.get("synced_headers")]
                 if peer_headers:
                     headers = max(peer_headers)
+                    last_known_headers = headers
 
-            if headers > 0:
-                last_known_headers = headers
+            # Calculate progress: based on block height ratio if available, else verificationprogress
+            if headers > 0 and blocks > 0:
+                progress = min(100.0, (blocks / headers) * 100.0)
+                last_known_progress = progress
+            elif last_known_ver_prog > 0:
+                progress = min(100.0, last_known_ver_prog * 100.0)
+                last_known_progress = progress
             else:
-                headers = last_known_headers
+                progress = last_known_progress
 
-            # Calculate progress safely
-            progress = min(100.0, (blocks / headers) * 100.0) if (headers > 0 and blocks > 0) else 88.11
-            difficulty = safe_float(mining.get("difficulty") or last_known_diff)
-            if difficulty > 0:
-                last_known_diff = difficulty
+            is_online = (chain is not None) or (net is not None) or (blocks > 0)
 
-            ibd = progress < 99.99
-            conns = net.get("connections") or len(last_known_peers) or last_known_conns
+            if net:
+                version_str = net.get("subversion", "/Satoshi:31.1.0/").strip("/")
+                protocol_ver = safe_int(net.get("protocolversion", 70016))
+                conns = safe_int(net.get("connections"), len(last_known_peers) or last_known_conns)
+                conns_in = safe_int(net.get("connections_in", 0))
+                conns_out = safe_int(net.get("connections_out", conns))
+            else:
+                version_str = "Satoshi:31.1.0"
+                protocol_ver = 70016
+                conns = len(last_known_peers) or last_known_conns
+                conns_in = 0
+                conns_out = conns
+
+            # Determine traffic bytes
+            total_recv = safe_int(net_totals.get("totalbytesrecv"))
+            total_sent = safe_int(net_totals.get("totalbytessent"))
+            if total_recv == 0 and last_known_peers:
+                total_recv = sum([p.get("bytesrecv", 0) for p in last_known_peers])
+            if total_sent == 0 and last_known_peers:
+                total_sent = sum([p.get("bytessent", 0) for p in last_known_peers])
 
             stats_data = {
-                "online": True,
+                "online": is_online,
                 "blockchain": {
                     "chain": "main",
                     "blocks": blocks,
@@ -318,18 +405,18 @@ def background_telemetry_collector():
                     "ibd": ibd,
                     "difficulty": difficulty,
                     "pruned": True,
-                    "prune_target_mb": 550,
-                    "bestblockhash": "",
-                    "size_on_disk": 926000000,
+                    "prune_target_mb": prune_target,
+                    "bestblockhash": bestblockhash,
+                    "size_on_disk": size_on_disk,
                 },
                 "network": {
-                    "version": net.get("subversion", "/Satoshi:31.1.0/").strip("/"),
-                    "protocolversion": safe_int(net.get("protocolversion", 70016)),
+                    "version": version_str,
+                    "protocolversion": protocol_ver,
                     "connections": conns,
-                    "connections_in": safe_int(net.get("connections_in", 0)),
-                    "connections_out": safe_int(net.get("connections_out", conns)),
-                    "totalbytesrecv": sum([p.get("bytesrecv", 0) for p in last_known_peers]),
-                    "totalbytessent": sum([p.get("bytessent", 0) for p in last_known_peers]),
+                    "connections_in": conns_in,
+                    "connections_out": conns_out,
+                    "totalbytesrecv": total_recv,
+                    "totalbytessent": total_sent,
                     "networkactive": True,
                 },
                 "mempool": {
@@ -339,7 +426,7 @@ def background_telemetry_collector():
                     "max_mb": round(safe_float(mem.get("maxmempool", 100 * 1024 * 1024)) / (1024 * 1024), 0),
                 },
                 "mining": {
-                    "networkhashps": safe_float(mining.get("networkhashps", 0)),
+                    "networkhashps": safe_float(mining.get("networkhashps", 0.0)),
                 },
                 "system": sys_metrics,
                 "timestamp": int(time.time()),
@@ -354,7 +441,7 @@ def background_telemetry_collector():
         except Exception as e:
             pass
 
-        time.sleep(4)
+        time.sleep(3)
 
 
 class DashboardHandler(BaseHTTPRequestHandler):
@@ -428,7 +515,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 self._send_json({"error": f"Command '{method}' is restricted for web dashboard safety."}, 403)
                 return
 
-            res = rpc.call(method, params, timeout=12)
+            res = rpc.call(method, params, timeout=15)
             self._send_json({"result": res, "command": cmd})
         except Exception as e:
             self._send_json({"error": str(e)}, 500)
