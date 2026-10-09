@@ -1,4 +1,4 @@
-﻿[Unit]
+[Unit]
 Description=Bitcoin Core Pruned Node Daemon
 Documentation=https://github.com/bitcoin/bitcoin
 After=network-online.target
@@ -8,13 +8,17 @@ Wants=network-online.target
 ExecStart=/usr/local/bin/bitcoind -conf=/etc/bitcoin/bitcoin.conf -datadir=/var/lib/bitcoind -pid=/run/bitcoind/bitcoind.pid
 ExecStop=/usr/local/bin/bitcoin-cli -conf=/etc/bitcoin/bitcoin.conf -datadir=/var/lib/bitcoind stop
 
-# Process management
+# Process management & Resilient Auto-Restart
 Type=simple
 PIDFile=/run/bitcoind/bitcoind.pid
-Restart=on-failure
-RestartSec=30s
+Restart=always
+RestartSec=15s
 TimeoutStopSec=300
 TimeoutStartSec=120
+
+# Memory Bounds & OOM Prevention
+MemoryHigh=1100M
+MemoryMax=1250M
 
 # Directory creation and permissions
 User=bitcoin
