@@ -5,3 +5,6 @@ After=network.target
 [Service]
 Type=oneshot
 ExecStart=/bin/bash /opt/pruned-btcnode/scripts/network_watchdog.sh
+StandardOutput=null
+StandardError=journal
+LogLevelMax=notice

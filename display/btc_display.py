@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 """
 Bitcoin Pruned Node Telemetry Display Daemon
 Target: Orange Pi Zero 3 (Allwinner H618) + Waveshare 2.0" ST7789 LCD (240x320)
@@ -99,6 +99,32 @@ class BitcoinNodeMonitor:
             return None
 
     def get_node_stats(self):
+        # 1. Prefer local web dashboard cache to eliminate redundant bitcoind RPC thrashing
+        try:
+            req = urllib.request.Request("http://127.0.0.1:8338/api/stats")
+            with urllib.request.urlopen(req, timeout=2) as resp:
+                stats = json.loads(resp.read().decode())
+                if stats and "blockchain" in stats:
+                    bc = stats["blockchain"]
+                    net = stats.get("network", {})
+                    mem = stats.get("mempool", {})
+                    return {
+                        "online": stats.get("online", False),
+                        "blocks": bc.get("blocks", 0),
+                        "headers": bc.get("headers", 0),
+                        "progress": bc.get("progress", 0.0),
+                        "ibd": bc.get("ibd", False),
+                        "pruned": bc.get("pruned", True),
+                        "prune_target_mb": bc.get("prune_target_mb", 550),
+                        "peers": net.get("connections", 0),
+                        "subversion": net.get("version", "Satoshi:31.1.0").replace("/", ""),
+                        "mempool_txs": mem.get("txs", 0),
+                        "mempool_mb": mem.get("usage_mb", 0.0),
+                    }
+        except Exception:
+            pass
+
+        # 2. Fallback to direct RPC if web server is offline
         blockchain = self.call_rpc("getblockchaininfo")
         network = self.call_rpc("getnetworkinfo")
         mempool = self.call_rpc("getmempoolinfo")
@@ -372,7 +398,7 @@ def main():
         except Exception as e:
             print(f"[WARN] Failed to open physical display: {e}. Running in headless/framebuffer dump mode.")
 
-    refresh_interval = 3.0
+    refresh_interval = 4.0
 
     while True:
         try:

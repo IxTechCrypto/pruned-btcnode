@@ -1,11 +1,11 @@
 [Unit]
-Description=Run Network Self-Healing Watchdog every 30 seconds
+Description=Run Network Self-Healing Watchdog every 2 minutes
 After=network.target
 
 [Timer]
-OnBootSec=30s
-OnUnitActiveSec=30s
-AccuracySec=5s
+OnBootSec=1min
+OnUnitActiveSec=2min
+AccuracySec=15s
 
 [Install]
 WantedBy=timers.target
