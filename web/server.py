@@ -305,6 +305,7 @@ def background_telemetry_collector():
     last_known_conns = 0
     last_known_ver_prog = 0.0
     last_known_progress = 0.0
+    last_known_hashps = 8.5e20
     # Immediate pre-seed from debug.log and system metrics before slow RPC calls
     init_tip = get_tip_from_debug_log()
     if init_tip:
@@ -413,6 +414,13 @@ def background_telemetry_collector():
                 if difficulty > 0:
                     last_known_diff = difficulty
 
+            if mining and "networkhashps" in mining:
+                nhash = safe_float(mining.get("networkhashps", 0.0))
+                if nhash > 0:
+                    last_known_hashps = nhash
+            elif difficulty > 0 and last_known_hashps <= 0.0:
+                last_known_hashps = difficulty * (2**32) / 600.0
+
             # Fallback block detection from peer telemetry if chain call timed out (filter out <= 0)
             if blocks <= 0 and last_known_peers:
                 peer_blocks = [p["synced_blocks"] for p in last_known_peers if p.get("synced_blocks", 0) > 0]
@@ -513,7 +521,7 @@ def background_telemetry_collector():
                     "max_mb": round(safe_float(mem.get("maxmempool", 100 * 1024 * 1024)) / (1024 * 1024), 0),
                 },
                 "mining": {
-                    "networkhashps": safe_float(mining.get("networkhashps", 0.0)),
+                    "networkhashps": last_known_hashps,
                 },
                 "system": sys_metrics,
                 "timestamp": int(time.time()),

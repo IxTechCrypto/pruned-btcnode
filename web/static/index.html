@@ -72,16 +72,20 @@
           <span class="stat-value" id="valDifficulty">--</span>
         </div>
         <div class="stat-row">
+          <span class="stat-label">Estimated Hashrate</span>
+          <span class="stat-value" id="valHashrate" style="color:var(--neon-gold); font-weight:700;">--</span>
+        </div>
+        <div class="stat-row">
           <span class="stat-label">Connected Peers</span>
           <span class="stat-value" id="valPeersCount" style="color:var(--neon-cyan);">0</span>
         </div>
         <div class="stat-row">
-          <span class="stat-label">Mempool Depth</span>
-          <span class="stat-value" id="valMempoolTxs">0 txs</span>
+          <span class="stat-label">Session P2P Traffic</span>
+          <span class="stat-value" id="valTraffic" style="font-family:var(--font-mono); font-size:12px;">--</span>
         </div>
         <div class="stat-row">
-          <span class="stat-label">Storage Prune Target</span>
-          <span class="stat-value" id="valPruneTarget" style="color:var(--neon-gold);">550 MB</span>
+          <span class="stat-label">Mempool Relay</span>
+          <span class="stat-value" id="valMempoolTxs">Standby (IBD Active)</span>
         </div>
       </div>
 
@@ -157,6 +161,11 @@
         <div class="stat-row">
           <span class="stat-label">MicroSD Flash Health</span>
           <span class="stat-value" id="valSdHealth" style="color:var(--neon-green); font-size:12px; font-weight:700;">98.3% Clean</span>
+        </div>
+
+        <div class="stat-row">
+          <span class="stat-label">Storage Prune Target</span>
+          <span class="stat-value" id="valPruneTarget" style="color:var(--neon-gold); font-size:12px; font-weight:600;">550 MB</span>
         </div>
 
         <div class="stat-row" style="border:none; padding-bottom:0;">

@@ -25,6 +25,15 @@ function formatDifficulty(diff) {
   return Number(diff).toFixed(2);
 }
 
+function formatHashrate(hps) {
+  if (!hps || hps <= 0) return '--';
+  if (hps >= 1e18) return (hps / 1e18).toFixed(2) + ' EH/s';
+  if (hps >= 1e15) return (hps / 1e15).toFixed(2) + ' PH/s';
+  if (hps >= 1e12) return (hps / 1e12).toFixed(2) + ' TH/s';
+  if (hps >= 1e9) return (hps / 1e9).toFixed(2) + ' GH/s';
+  return (hps / 1e6).toFixed(2) + ' MH/s';
+}
+
 function formatUptime(seconds) {
   const d = Math.floor(seconds / (3600 * 24));
   const h = Math.floor((seconds % (3600 * 24)) / 3600);
@@ -112,8 +121,26 @@ function updateUI(data) {
 
   // 3. Chain & Mining Stats
   setTextIfChanged('valDifficulty', formatDifficulty(chain.difficulty));
-  setTextIfChanged('valPeersCount', `${net.connections || 0} (${net.connections_in || 0} In / ${net.connections_out || 0} Out)`);
-  setTextIfChanged('valMempoolTxs', `${(mem.txs || 0).toLocaleString()} txs (${mem.usage_mb || 0} MB)`);
+
+  const hashrate = data.mining && data.mining.networkhashps ? data.mining.networkhashps : 0;
+  setTextIfChanged('valHashrate', formatHashrate(hashrate));
+
+  const inCount = net.connections_in || 0;
+  const outCount = net.connections_out || net.connections || 0;
+  const peerText = inCount > 0 
+    ? `${net.connections || 0} (${inCount} In / ${outCount} Out)`
+    : `${net.connections || 0} Outbound P2P`;
+  setTextIfChanged('valPeersCount', peerText);
+
+  const trafficRecv = formatBytes(net.totalbytesrecv || 0);
+  const trafficSent = formatBytes(net.totalbytessent || 0);
+  setTextIfChanged('valTraffic', `↓ ${trafficRecv} | ↑ ${trafficSent}`);
+
+  if (chain.ibd && (!mem.txs || mem.txs === 0)) {
+    setTextIfChanged('valMempoolTxs', 'Standby (IBD Active)');
+  } else {
+    setTextIfChanged('valMempoolTxs', `${(mem.txs || 0).toLocaleString()} txs (${mem.usage_mb || 0} MB)`);
+  }
   setTextIfChanged('valPruneTarget', `${chain.prune_target_mb || 550} MB`);
 
   // 4. Globe Overlay Telemetry
@@ -173,9 +200,9 @@ function updatePeersTable(peers) {
       <td style="color:var(--neon-cyan);">${p.addr}</td>
       <td><span class="${p.inbound ? 'badge-inbound' : 'badge-outbound'}">${p.inbound ? 'INBOUND' : 'OUTBOUND'}</span></td>
       <td>${p.subver || 'Unknown'}</td>
-      <td style="color:${p.pingtime < 100 ? 'var(--neon-green)' : 'var(--neon-gold)'};">${p.pingtime} ms</td>
+      <td style="color:${p.pingtime > 0 ? (p.pingtime < 100 ? 'var(--neon-green)' : 'var(--neon-gold)') : 'var(--text-muted)'};">${p.pingtime > 0 ? `${p.pingtime} ms` : '--'}</td>
       <td>↓ ${formatBytes(p.bytesrecv)} | ↑ ${formatBytes(p.bytessent)}</td>
-      <td>#${(p.synced_blocks || p.synced_headers || 0).toLocaleString()}</td>
+      <td>${(p.synced_blocks > 0 || p.synced_headers > 0) ? `#${(p.synced_blocks || p.synced_headers).toLocaleString()}` : '<span style="color:var(--text-muted);">Syncing...</span>'}</td>
     </tr>
   `).join('');
 }
