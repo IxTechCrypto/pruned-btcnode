@@ -139,8 +139,17 @@ function updateUI(data) {
   const diskBar = document.getElementById('diskBarFill');
   if (diskBar) diskBar.style.width = `${sys.disk_used_pct || 0}%`;
 
-  const sdGb = sys.sd_lifetime_gb || 284;
-  setTextIfChanged('valSdHealth', `100% Clean (${sdGb} GB Written)`);
+  const sdGb = sys.sd_lifetime_gb || 0;
+  const healthPct = sys.sd_health_pct !== undefined ? sys.sd_health_pct : (sys.sd_health ? parseFloat(sys.sd_health) : 98.3);
+  const tbwStr = sdGb >= 1000 ? `${(sdGb / 1024).toFixed(2)} TB` : `${sdGb.toFixed(1)} GB`;
+  setTextIfChanged('valSdHealth', `${healthPct}% Clean (${tbwStr} Written)`);
+
+  const healthEl = document.getElementById('valSdHealth');
+  if (healthEl) {
+    if (healthPct >= 90) healthEl.style.color = 'var(--neon-green)';
+    else if (healthPct >= 70) healthEl.style.color = 'var(--neon-gold)';
+    else healthEl.style.color = 'var(--neon-pink)';
+  }
 
   setTextIfChanged('valLoadAvg', (sys.load_avg || []).join('  '));
 }

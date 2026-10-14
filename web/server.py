@@ -234,6 +234,13 @@ def get_system_metrics():
     except Exception:
         pass
 
+    # Dynamic Flash Endurance & Wear Calculation
+    # Samsung 128GB 3D TLC V-NAND rated for 500 P/E cycles = 64 TBW (64,000 GB)
+    rated_tbw_gb = 64000.0
+    sd_wear_pct = round((sd_lifetime_gb / rated_tbw_gb) * 100.0, 2)
+    sd_health_pct = max(0.0, min(100.0, round(100.0 - sd_wear_pct, 1)))
+    sd_health_str = f"{sd_health_pct}% (Clean)"
+
     return {
         "ip": ip,
         "cpu_temp": round(temp_c, 1),
@@ -244,7 +251,8 @@ def get_system_metrics():
         "disk_total_gb": disk_total,
         "disk_used_pct": round(((disk_total - disk_free) / disk_total) * 100, 1) if disk_total else 0,
         "sd_lifetime_gb": sd_lifetime_gb,
-        "sd_health": "99.7% (Clean)",
+        "sd_health_pct": sd_health_pct,
+        "sd_health": sd_health_str,
         "sd_model": sd_model,
         "uptime_sec": uptime_sec,
         "load_avg": [round(x, 2) for x in load_avg],
